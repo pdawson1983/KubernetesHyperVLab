@@ -1,0 +1,135 @@
+{{- if .Values.registry.enabled }}
+# =============================================================================
+# In-Cluster Container Registry
+# Uses NodePort for both push (WSL) and pull (nodes).
+# No ingress — direct NodePort access avoids TLS complexity.
+#
+# Push from WSL:
+#   podman push 192.168.100.11:30500/claude-agent:latest --tls-verify=false
+#
+# containerd trust (run once per node after install):
+#   mkdir -p /etc/containerd/certs.d/192.168.100.11:30500
+#   cat > /etc/containerd/certs.d/192.168.100.11:30500/hosts.toml << EOF
+#   server = "http://192.168.100.11:30500"
+#   [host."http://192.168.100.11:30500"]
+#     capabilities = ["pull", "resolve", "push"]
+#     skip_verify = true
+#   EOF
+#   systemctl restart containerd
+# =============================================================================
+
+---
+# PVC — persistent image storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-registry
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.registry.storage.size }}
+  {{- if .Values.registry.storage.storageClass }}
+  storageClassName: {{ .Values.registry.storage.storageClass }}
+  {{- end }}
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-registry
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+    app.kubernetes.io/name: container-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: container-registry
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.labels" . | nindent 8 }}
+        app.kubernetes.io/name: container-registry
+        app.kubernetes.io/component: registry
+    spec:
+      containers:
+        - name: registry
+          image: docker.io/library/registry:{{ .Values.registry.image.tag }}
+          imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
+          ports:
+            - name: registry
+              containerPort: 5000
+              protocol: TCP
+          env:
+            - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+              value: /var/lib/registry
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+            - name: REGISTRY_LOG_LEVEL
+              value: {{ .Values.registry.logLevel | quote }}
+            - name: REGISTRY_HTTP_ADDR
+              value: "0.0.0.0:5000"
+          volumeMounts:
+            - name: registry-data
+              mountPath: /var/lib/registry
+          livenessProbe:
+            httpGet:
+              path: /v2/
+              port: registry
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /v2/
+              port: registry
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: {{ .Values.registry.resources.requests.cpu }}
+              memory: {{ .Values.registry.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.registry.resources.limits.cpu }}
+              memory: {{ .Values.registry.resources.limits.memory }}
+      volumes:
+        - name: registry-data
+          persistentVolumeClaim:
+            claimName: {{ include "claude-agents.fullname" . }}-registry
+
+---
+# Service — NodePort for both internal pulls and external pushes
+# No ingress needed — HTTP NodePort bypasses all TLS complexity
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-registry
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: container-registry
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: registry
+      port: 5000
+      targetPort: registry
+      nodePort: {{ .Values.registry.nodePort }}
+      protocol: TCP
+{{- end }}

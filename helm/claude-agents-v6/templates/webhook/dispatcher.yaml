@@ -1,0 +1,337 @@
+{{- if .Values.webhook.enabled }}
+# =============================================================================
+# Webhook Dispatcher
+# Two containers:
+#   1. dispatcher — HTTP server, writes /memory/inbox/, creates agent Jobs
+#   2. queue-watcher — polls /memory/queue/, fires next agent via dispatcher
+# =============================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webhook
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/name: webhook-dispatcher
+spec:
+  replicas: {{ .Values.webhook.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webhook-dispatcher
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.labels" . | nindent 8 }}
+        app.kubernetes.io/name: webhook-dispatcher
+        app.kubernetes.io/component: webhook
+    spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      initContainers:
+        - name: install-kubectl
+          image: bitnami/kubectl:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - cp
+            - /opt/bitnami/kubectl/bin/kubectl
+            - /tools/kubectl
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+      containers:
+
+        # ── Container 1: HTTP dispatcher ────────────────────────────────────
+        - name: dispatcher
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+          env:
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.webhook.secretName }}
+                  key: WEBHOOK_SECRET
+            - name: NAMESPACE
+              value: {{ .Values.global.namespace }}
+            - name: RELEASE_NAME
+              value: {{ .Release.Name }}
+            - name: PORT
+              value: {{ .Values.webhook.port | quote }}
+          volumeMounts:
+            - name: tools
+              mountPath: /usr/local/bin/kubectl
+              subPath: kubectl
+            - name: agent-memory
+              mountPath: /memory
+          command:
+            - python3
+            - -c
+            - |
+              import os, json, hmac, hashlib, sys, pathlib
+              from http.server import HTTPServer, BaseHTTPRequestHandler
+              from subprocess import run
+
+              SECRET = os.environ.get("WEBHOOK_SECRET", "").encode()
+              NAMESPACE = os.environ.get("NAMESPACE", "claude-agents")
+              RELEASE = os.environ.get("RELEASE_NAME", "release")
+              PORT = int(os.environ.get("PORT", 8080))
+              MEMORY_PATH = pathlib.Path("/memory")
+
+              TRIGGER_MAP = {
+                "issue.opened":         "architect",
+                "issue.labeled":        "architect",
+                "architect.complete":   "coder",
+                "coder.complete":       "tester",
+                "tester.complete":      "reviewer",
+                "pr.opened":            "reviewer",
+                "pr.synchronize":       "reviewer",
+                "reviewer.approved":    "ops",
+                "deployment.requested": "ops",
+              }
+
+              class Handler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                  if self.path in ("/healthz", "/readyz"):
+                    body = b'{"status":"ok"}'
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                  else:
+                    self.send_response(404)
+                    self.end_headers()
+
+                def do_POST(self):
+                  length = int(self.headers.get("Content-Length", 0))
+                  body = self.rfile.read(length)
+
+                  if SECRET:
+                    sig = self.headers.get("X-Hub-Signature-256", "")
+                    expected = "sha256=" + hmac.new(SECRET, body, hashlib.sha256).hexdigest()
+                    if not hmac.compare_digest(sig, expected):
+                      print("[dispatcher] Invalid signature - rejected", flush=True)
+                      self.send_response(401)
+                      self.end_headers()
+                      return
+
+                  try:
+                    payload = json.loads(body)
+                    event_type = payload.get("event") or self.headers.get("X-Event-Type", "")
+                    agent = TRIGGER_MAP.get(event_type)
+                    print("[dispatcher] event=" + str(event_type) + " agent=" + str(agent), flush=True)
+
+                    if agent:
+                      job_name = RELEASE + "-claude-agents-" + agent + "-" + os.urandom(4).hex()
+                      source_job = "cronjob/" + RELEASE + "-claude-agents-" + agent
+
+                      # Write payload to /memory/inbox/ for architect
+                      # Write payload to /memory/queue/<agent>.json for others
+                      if agent == "architect":
+                        target_dir = MEMORY_PATH / "inbox"
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        target_file = target_dir / (job_name + ".json")
+                      else:
+                        target_dir = MEMORY_PATH / "queue"
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        target_file = target_dir / (agent + ".json")
+
+                      target_file.write_text(body.decode("utf-8"))
+                      print("[dispatcher] wrote payload to " + str(target_file), flush=True)
+
+                      print("[dispatcher] creating job=" + job_name + " from=" + source_job, flush=True)
+                      result = run(
+                        ["kubectl", "create", "job", job_name,
+                         "--from", source_job,
+                         "-n", NAMESPACE],
+                        capture_output=True, text=True
+                      )
+                      if result.returncode == 0:
+                        print("[dispatcher] created job=" + job_name, flush=True)
+                        resp = json.dumps({"dispatched": agent, "job": job_name}).encode()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(resp)))
+                        self.end_headers()
+                        self.wfile.write(resp)
+                      else:
+                        print("[dispatcher] job creation failed: " + result.stderr, flush=True)
+                        target_file.unlink(missing_ok=True)
+                        self.send_response(500)
+                        self.end_headers()
+                    else:
+                      print("[dispatcher] no agent mapped for event=" + str(event_type), flush=True)
+                      self.send_response(204)
+                      self.end_headers()
+                  except Exception as e:
+                    print("[dispatcher] error=" + str(e), flush=True)
+                    self.send_response(500)
+                    self.end_headers()
+
+                def log_message(self, format, *args):
+                  pass
+
+              for d in ["inbox", "specs", "queue", "workspace", "reviews", "deployments", "logs"]:
+                (MEMORY_PATH / d).mkdir(parents=True, exist_ok=True)
+
+              print("[dispatcher] listening on port " + str(PORT), flush=True)
+              sys.stdout.flush()
+              HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+          resources:
+            requests:
+              cpu: {{ .Values.webhook.resources.requests.cpu }}
+              memory: {{ .Values.webhook.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.webhook.resources.limits.cpu }}
+              memory: {{ .Values.webhook.resources.limits.memory }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+        # ── Container 2: Queue watcher ───────────────────────────────────────
+        # Polls /memory/queue/ every 5s and POSTs to the dispatcher
+        # when an agent writes a trigger file, chaining the pipeline forward.
+        - name: queue-watcher
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.webhook.secretName }}
+                  key: WEBHOOK_SECRET
+            - name: DISPATCHER_URL
+              value: "http://localhost:{{ .Values.webhook.port }}"
+            - name: POLL_INTERVAL
+              value: "5"
+          volumeMounts:
+            - name: agent-memory
+              mountPath: /memory
+          command:
+            - python3
+            - -c
+            - |
+              import os, json, hmac, hashlib, time, pathlib, urllib.request
+
+              SECRET = os.environ.get("WEBHOOK_SECRET", "").encode()
+              DISPATCHER_URL = os.environ.get("DISPATCHER_URL", "http://localhost:8080")
+              POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", 5))
+              MEMORY_PATH = pathlib.Path("/memory")
+              QUEUE_PATH = MEMORY_PATH / "queue"
+              PROCESSED_PATH = QUEUE_PATH / "processed"
+
+              # Map queue filenames to event types
+              FILE_TO_EVENT = {
+                "coder.json":    "architect.complete",
+                "tester.json":   "coder.complete",
+                "reviewer.json": "tester.complete",
+                "ops.json":      "reviewer.approved",
+              }
+
+              def sign(payload_bytes):
+                if not SECRET:
+                  return ""
+                return "sha256=" + hmac.new(SECRET, payload_bytes, hashlib.sha256).hexdigest()
+
+              def send_event(event_type, payload_bytes):
+                sig = sign(payload_bytes)
+                try:
+                  req = urllib.request.Request(
+                    DISPATCHER_URL,
+                    data=payload_bytes,
+                    headers={
+                      "Content-Type": "application/json",
+                      "X-Event-Type": event_type,
+                      "X-Hub-Signature-256": sig,
+                    },
+                    method="POST"
+                  )
+                  with urllib.request.urlopen(req, timeout=10) as resp:
+                    print("[queue-watcher] dispatched event=" + event_type + " status=" + str(resp.status), flush=True)
+                except Exception as e:
+                  print("[queue-watcher] failed to dispatch event=" + event_type + " error=" + str(e), flush=True)
+
+              QUEUE_PATH.mkdir(parents=True, exist_ok=True)
+              PROCESSED_PATH.mkdir(parents=True, exist_ok=True)
+
+              print("[queue-watcher] watching " + str(QUEUE_PATH) + " every " + str(POLL_INTERVAL) + "s", flush=True)
+
+              while True:
+                for queue_file, event_type in FILE_TO_EVENT.items():
+                  full_path = QUEUE_PATH / queue_file
+                  if full_path.exists():
+                    try:
+                      payload_bytes = full_path.read_bytes()
+                      # Parse and enrich with event type
+                      try:
+                        payload = json.loads(payload_bytes)
+                        payload["event"] = event_type
+                        payload_bytes = json.dumps(payload).encode()
+                      except Exception:
+                        payload_bytes = json.dumps({"event": event_type}).encode()
+
+                      print("[queue-watcher] found " + queue_file + " -> " + event_type, flush=True)
+                      send_event(event_type, payload_bytes)
+
+                      # Archive the processed file
+                      import shutil
+                      ts = str(int(time.time()))
+                      shutil.move(str(full_path), str(PROCESSED_PATH / (queue_file + "-" + ts)))
+                      print("[queue-watcher] archived " + queue_file, flush=True)
+                    except Exception as e:
+                      print("[queue-watcher] error processing " + queue_file + ": " + str(e), flush=True)
+
+                time.sleep(POLL_INTERVAL)
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+      volumes:
+        - name: tools
+          emptyDir: {}
+        - name: agent-memory
+          persistentVolumeClaim:
+            claimName: {{ include "claude-agents.fullname" . }}-memory
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webhook
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+spec:
+  type: {{ .Values.webhook.serviceType }}
+  selector:
+    app.kubernetes.io/name: webhook-dispatcher
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.webhook.port }}
+      targetPort: http
+      {{- if eq .Values.webhook.serviceType "NodePort" }}
+      nodePort: {{ .Values.webhook.nodePort }}
+      {{- end }}
+      protocol: TCP
+{{- end }}

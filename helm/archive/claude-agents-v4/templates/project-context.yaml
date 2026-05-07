@@ -1,0 +1,19 @@
+{{- if .Values.projectContext.enabled }}
+# =============================================================================
+# Project Context ConfigMap
+# This is the CLAUDE.md equivalent — mounted into every agent at
+# /memory/CLAUDE.md so all agents share the same project understanding.
+# Update .Values.projectContext.content to reflect your actual project.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-project-context
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  CLAUDE.md: |
+    {{- .Values.projectContext.content | nindent 4 }}
+{{- end }}

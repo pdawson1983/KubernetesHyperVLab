@@ -1,0 +1,88 @@
+╔══════════════════════════════════════════════════════════╗
+║          claude-agents installed successfully!           ║
+╚══════════════════════════════════════════════════════════╝
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Values.global.namespace }}
+Version:   {{ .Chart.Version }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BEFORE THE PIPELINE WORKS — create these two secrets:
+
+  kubectl create secret generic anthropic-api-key \
+    --from-literal=ANTHROPIC_API_KEY=sk-ant-your-key-here \
+    -n {{ .Values.global.namespace }}
+
+  kubectl create secret generic webhook-secret \
+    --from-literal=WEBHOOK_SECRET=your-secret-here \
+    -n {{ .Values.global.namespace }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CONTAINER REGISTRY (NodePort — no ingress, no TLS):
+  Push from WSL:
+    podman build -t claude-agent:latest .
+    podman push 192.168.100.11:{{ .Values.registry.nodePort }}/claude-agent:latest --tls-verify=false
+
+  Verify:
+    curl http://192.168.100.11:{{ .Values.registry.nodePort }}/v2/_catalog
+
+  ONE-TIME SETUP — trust the registry on each node:
+    for node in 192.168.100.10 192.168.100.11 192.168.100.12; do
+      ssh -t pdawson@$node "sudo bash -c '
+        mkdir -p /etc/containerd/certs.d/192.168.100.11:{{ .Values.registry.nodePort }}
+        cat > /etc/containerd/certs.d/192.168.100.11:{{ .Values.registry.nodePort }}/hosts.toml << EOF
+    server = \"http://192.168.100.11:{{ .Values.registry.nodePort }}\"
+    [host.\"http://192.168.100.11:{{ .Values.registry.nodePort }}\"]
+      capabilities = [\"pull\", \"resolve\", \"push\"]
+      skip_verify = true
+    EOF
+        systemctl restart containerd'"
+    done
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+INGRESS (webhook only):
+  Webhook:  http://webhook.{{ .Values.ingress.domain }}
+
+  Add to WSL /etc/hosts and Windows hosts file:
+    192.168.100.200  webhook.{{ .Values.ingress.domain }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SEND A TEST EVENT:
+  PAYLOAD='{"event": "issue.opened", "title": "Add login page"}'
+  SECRET=$(kubectl get secret webhook-secret -n {{ .Values.global.namespace }} -o jsonpath='{.data.WEBHOOK_SECRET}' | base64 -d)
+  SIG="sha256=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | cut -d' ' -f2)"
+  curl -X POST http://webhook.{{ .Values.ingress.domain }} \
+    -H "Content-Type: application/json" \
+    -H "X-Event-Type: issue.opened" \
+    -H "X-Hub-Signature-256: $SIG" \
+    -d "$PAYLOAD"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WATCH THE PIPELINE:
+  kubectl get pods -n {{ .Values.global.namespace }} -w
+  kubectl logs -n {{ .Values.global.namespace }} -l app.kubernetes.io/name=webhook-dispatcher -f
+  kubectl logs -n {{ .Values.global.namespace }} -l claude-agents/role=architect -f
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AGENTS ENABLED:
+{{- range $agent, $config := .Values.agents }}
+{{- if $config.enabled }}
+  ✓ {{ $agent }} — triggers: {{ $config.triggers | join ", " }}
+{{- end }}
+{{- end }}
+
+MEMORY:
+  PVC:        {{ include "claude-agents.fullname" . }}-memory ({{ .Values.memory.size }}, {{ .Values.memory.accessMode }}, {{ .Values.memory.storageClass }})
+  Mount path: {{ .Values.memory.mountPath }}
+
+PIPELINE FLOW:
+  issue.opened → [Architect] → [Coder] → [Tester] → [Reviewer] → [Ops]
+
+To uninstall:
+  helm uninstall {{ .Release.Name }} -n {{ .Values.global.namespace }}

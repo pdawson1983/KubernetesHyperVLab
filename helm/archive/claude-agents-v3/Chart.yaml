@@ -1,0 +1,14 @@
+apiVersion: v2
+name: claude-agents
+description: Multi-agent Claude Code pipeline for Kubernetes - Architect, Coder, Reviewer, Tester, and Ops agents orchestrated via webhooks with persistent memory.
+type: application
+version: 0.2.0
+appVersion: "1.0.0"
+keywords:
+  - ai
+  - agents
+  - claude
+  - automation
+  - ci-cd
+maintainers:
+  - name: pdawson

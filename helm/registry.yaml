@@ -1,0 +1,156 @@
+{{- if .Values.registry.enabled }}
+# =============================================================================
+# In-Cluster Container Registry
+# Based on the official Docker Registry v2 image (same backend as twuni).
+# All cluster nodes pull agent images from here — no external dependencies.
+#
+# Access from WSL:
+#   podman push 192.168.100.10:30500/claude-agent:latest --tls-verify=false
+#
+# Access from inside the cluster:
+#   image: registry.{{ .Values.global.namespace }}.svc.cluster.local:5000/claude-agent:latest
+# =============================================================================
+
+---
+# PVC — persistent image storage
+# Survives pod restarts and cluster reboots
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-registry
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+  annotations:
+    helm.sh/resource-policy: keep   # don't delete images on helm uninstall
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.registry.storage.size }}
+  {{- if .Values.registry.storage.storageClass }}
+  storageClassName: {{ .Values.registry.storage.storageClass }}
+  {{- end }}
+
+---
+# Deployment — the registry server itself
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-registry
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+    app.kubernetes.io/name: container-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: container-registry
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  strategy:
+    # Recreate instead of RollingUpdate because PVC is ReadWriteOnce
+    # (only one pod can mount it at a time)
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.labels" . | nindent 8 }}
+        app.kubernetes.io/name: container-registry
+        app.kubernetes.io/component: registry
+    spec:
+      containers:
+        - name: registry
+          image: docker.io/library/registry:{{ .Values.registry.image.tag }}
+          imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
+          ports:
+            - name: registry
+              containerPort: 5000
+              protocol: TCP
+          env:
+            # Storage backend — filesystem backed by PVC
+            - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+              value: /var/lib/registry
+            # Enable delete so you can clean up old images
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+            # Log level
+            - name: REGISTRY_LOG_LEVEL
+              value: {{ .Values.registry.logLevel | quote }}
+            {{- if .Values.registry.auth.enabled }}
+            # Basic auth — htpasswd file from secret
+            - name: REGISTRY_AUTH
+              value: htpasswd
+            - name: REGISTRY_AUTH_HTPASSWD_REALM
+              value: "Claude Agents Registry"
+            - name: REGISTRY_AUTH_HTPASSWD_PATH
+              value: /auth/htpasswd
+            {{- end }}
+          volumeMounts:
+            - name: registry-data
+              mountPath: /var/lib/registry
+            {{- if .Values.registry.auth.enabled }}
+            - name: auth
+              mountPath: /auth
+              readOnly: true
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /v2/
+              port: registry
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /v2/
+              port: registry
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: {{ .Values.registry.resources.requests.cpu }}
+              memory: {{ .Values.registry.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.registry.resources.limits.cpu }}
+              memory: {{ .Values.registry.resources.limits.memory }}
+      volumes:
+        - name: registry-data
+          persistentVolumeClaim:
+            claimName: {{ include "claude-agents.fullname" . }}-registry
+        {{- if .Values.registry.auth.enabled }}
+        - name: auth
+          secret:
+            secretName: {{ .Values.registry.auth.secretName }}
+        {{- end }}
+
+---
+# Service — two ports:
+#   ClusterIP :5000  → for pods inside the cluster pulling images
+#   NodePort :30500  → for podman push from WSL
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-registry
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+  annotations:
+    # Makes the service discoverable as "registry" shortname inside the namespace
+    service.kubernetes.io/topology-aware-hints: auto
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: container-registry
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: registry
+      port: 5000
+      targetPort: registry
+      nodePort: {{ .Values.registry.nodePort }}
+      protocol: TCP
+{{- end }}

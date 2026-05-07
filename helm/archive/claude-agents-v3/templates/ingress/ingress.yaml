@@ -1,0 +1,101 @@
+{{- if .Values.ingress.enabled }}
+# =============================================================================
+# Ingress Resources
+# Routes external traffic to webhook dispatcher and registry via nginx.
+# Each service gets its own subdomain under .Values.ingress.domain.
+#
+# Webhook:  http://webhook.<domain>  → dispatcher pod :8080
+# Registry: http://registry.<domain> → registry pod :5000
+#
+# Add to your WSL /etc/hosts (or Windows C:\Windows\System32\drivers\etc\hosts):
+#   192.168.100.11  webhook.k8s.local
+#   192.168.100.11  registry.k8s.local
+#
+# Use any worker node IP — nginx ingress handles routing from there.
+# =============================================================================
+
+{{- if .Values.webhook.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webhook
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    # Increase proxy timeouts — agents can take a while to respond
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: webhook.{{ .Values.ingress.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "claude-agents.fullname" . }}-webhook
+                port:
+                  number: {{ .Values.webhook.port }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - webhook.{{ .Values.ingress.domain }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+{{- end }}
+
+{{- if .Values.registry.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-registry
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    # Registry needs large body size for image layer uploads
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    # Disable buffering for registry — important for large image pushes
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: registry.{{ .Values.ingress.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "claude-agents.fullname" . }}-registry
+                port:
+                  number: 5000
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - registry.{{ .Values.ingress.domain }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+{{- end }}
+
+{{- end }}

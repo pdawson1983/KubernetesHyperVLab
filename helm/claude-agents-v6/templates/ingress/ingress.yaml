@@ -1,0 +1,53 @@
+{{- if .Values.ingress.enabled }}
+# =============================================================================
+# Ingress Resources
+# Webhook only — registry uses NodePort directly to avoid TLS issues
+# with containerd image pulls.
+#
+# Webhook:  http://webhook.k8s.local → dispatcher :8080
+#
+# Add to WSL /etc/hosts and Windows hosts file:
+#   192.168.100.200  webhook.k8s.local
+# =============================================================================
+
+{{- if and .Values.webhook.enabled .Values.ingress.webhook.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webhook
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: webhook.{{ .Values.ingress.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "claude-agents.fullname" . }}-webhook
+                port:
+                  number: {{ .Values.webhook.port }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - webhook.{{ .Values.ingress.domain }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+{{- end }}
+
+{{- end }}

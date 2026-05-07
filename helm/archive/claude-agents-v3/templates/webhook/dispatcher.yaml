@@ -1,0 +1,172 @@
+{{- if .Values.webhook.enabled }}
+# =============================================================================
+# Webhook Dispatcher
+# This is the entry point for the entire pipeline. It's a lightweight
+# HTTP server that:
+#   1. Receives incoming webhook events (GitHub, custom, etc.)
+#   2. Validates the payload against the webhook secret
+#   3. Matches the event type to agent triggers
+#   4. Creates a Kubernetes Job for the matching agent
+#
+# It runs as a Deployment (always-on) unlike the agents (which are Jobs).
+# =============================================================================
+
+---
+# Dispatcher Deployment — always running, waiting for events
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webhook
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/name: webhook-dispatcher
+spec:
+  replicas: {{ .Values.webhook.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webhook-dispatcher
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.labels" . | nindent 8 }}
+        app.kubernetes.io/name: webhook-dispatcher
+        app.kubernetes.io/component: webhook
+    spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      containers:
+        - name: dispatcher
+          # Lightweight Python HTTP server that reads agent configs
+          # and creates Jobs. See dispatcher/main.py in the repo.
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+          env:
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.webhook.secretName }}
+                  key: WEBHOOK_SECRET
+            - name: NAMESPACE
+              value: {{ .Values.global.namespace }}
+            - name: RELEASE_NAME
+              value: {{ .Release.Name }}
+            - name: PORT
+              value: {{ .Values.webhook.port | quote }}
+          # Inline dispatcher script — replace with a real image in production
+          command:
+            - python3
+            - -c
+            - |
+              import os, json, hmac, hashlib
+              from http.server import HTTPServer, BaseHTTPRequestHandler
+              from subprocess import run
+
+              SECRET = os.environ.get("WEBHOOK_SECRET", "").encode()
+              NAMESPACE = os.environ.get("NAMESPACE", "claude-agents")
+              RELEASE = os.environ.get("RELEASE_NAME", "release")
+              PORT = int(os.environ.get("PORT", 8080))
+
+              # Map event types to agent names
+              TRIGGER_MAP = {
+                "issue.opened":          "architect",
+                "issue.labeled":         "architect",
+                "architect.complete":    "coder",
+                "coder.complete":        "tester",
+                "tester.complete":       "reviewer",
+                "pr.opened":             "reviewer",
+                "pr.synchronize":        "reviewer",
+                "reviewer.approved":     "ops",
+                "deployment.requested":  "ops",
+              }
+
+              class Handler(BaseHTTPRequestHandler):
+                def do_POST(self):
+                  length = int(self.headers.get("Content-Length", 0))
+                  body = self.rfile.read(length)
+
+                  # Validate HMAC signature
+                  sig = self.headers.get("X-Hub-Signature-256", "")
+                  expected = "sha256=" + hmac.new(SECRET, body, hashlib.sha256).hexdigest()
+                  if SECRET and not hmac.compare_digest(sig, expected):
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+
+                  try:
+                    payload = json.loads(body)
+                    event_type = payload.get("event") or self.headers.get("X-Event-Type", "")
+                    agent = TRIGGER_MAP.get(event_type)
+
+                    if agent:
+                      job_name = f"{RELEASE}-claude-agents-{agent}-{os.urandom(4).hex()}"
+                      result = run([
+                        "kubectl", "create", "job", job_name,
+                        "--from", f"job/{RELEASE}-claude-agents-{agent}",
+                        "-n", NAMESPACE
+                      ], capture_output=True, text=True)
+                      print(f"Dispatched {agent} for event {event_type}: {result.stdout}")
+                      self.send_response(200)
+                    else:
+                      print(f"No agent for event: {event_type}")
+                      self.send_response(204)
+                  except Exception as e:
+                    print(f"Error: {e}")
+                    self.send_response(500)
+
+                  self.end_headers()
+
+                def log_message(self, format, *args):
+                  print(f"[dispatcher] {format % args}")
+
+              print(f"Webhook dispatcher listening on :{PORT}")
+              HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+          resources:
+            requests:
+              cpu: {{ .Values.webhook.resources.requests.cpu }}
+              memory: {{ .Values.webhook.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.webhook.resources.limits.cpu }}
+              memory: {{ .Values.webhook.resources.limits.memory }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+
+---
+# Service — ClusterIP when ingress handles external traffic, NodePort as fallback
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webhook
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+spec:
+  type: {{ .Values.webhook.serviceType }}
+  selector:
+    app.kubernetes.io/name: webhook-dispatcher
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.webhook.port }}
+      targetPort: http
+      {{- if eq .Values.webhook.serviceType "NodePort" }}
+      nodePort: {{ .Values.webhook.nodePort }}
+      {{- end }}
+      protocol: TCP
+{{- end }}

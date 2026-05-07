@@ -1,0 +1,28 @@
+{{- if .Values.memory.enabled }}
+# =============================================================================
+# Shared memory PVC
+# All agents mount this volume to read/write their working state.
+# Think of it as the shared filesystem that replaces Obsidian in the local setup.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-memory
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+  annotations:
+    helm.sh/resource-policy: keep   # don't delete memory on helm uninstall
+spec:
+  accessModes:
+    - {{ .Values.memory.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.memory.size }}
+  {{- if .Values.memory.storageClass }}
+  storageClassName: {{ .Values.memory.storageClass }}
+  {{- else }}
+  storageClassName: ""
+  {{- end }}
+{{- end }}

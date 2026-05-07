@@ -1,0 +1,136 @@
+╔══════════════════════════════════════════════════════════╗
+║          claude-agents installed successfully!           ║
+╚══════════════════════════════════════════════════════════╝
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Values.global.namespace }}
+Version:   {{ .Chart.Version }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BEFORE THE PIPELINE WORKS — create these two secrets:
+
+  # 1. Anthropic API key
+  kubectl create secret generic anthropic-api-key \
+    --from-literal=ANTHROPIC_API_KEY=sk-ant-your-key-here \
+    -n {{ .Values.global.namespace }}
+
+  # 2. Webhook validation secret
+  kubectl create secret generic webhook-secret \
+    --from-literal=WEBHOOK_SECRET=your-secret-here \
+    -n {{ .Values.global.namespace }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SEND A TEST WEBHOOK EVENT:
+{{- if .Values.ingress.enabled }}
+  curl -X POST http://webhook.{{ .Values.ingress.domain }} \
+    -H "Content-Type: application/json" \
+    -H "X-Event-Type: issue.opened" \
+    -d '{"event": "issue.opened", "title": "Add login page"}'
+{{- else }}
+  curl -X POST http://192.168.100.11:{{ .Values.webhook.nodePort }} \
+    -H "Content-Type: application/json" \
+    -H "X-Event-Type: issue.opened" \
+    -d '{"event": "issue.opened", "title": "Add login page"}'
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WATCH THE PIPELINE RUN:
+
+  # Watch jobs spin up
+  kubectl get jobs -n {{ .Values.global.namespace }} -w
+
+  # Watch all pods
+  kubectl get pods -n {{ .Values.global.namespace }} -w
+
+  # Follow dispatcher logs
+  kubectl logs -n {{ .Values.global.namespace }} \
+    -l app.kubernetes.io/name=webhook-dispatcher -f
+
+  # Follow a specific agent's logs
+  kubectl logs -n {{ .Values.global.namespace }} \
+    -l claude-agents/role=architect -f
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{- if .Values.registry.enabled }}
+CONTAINER REGISTRY:
+  NodePort:     {{ .Values.registry.nodePort }}
+  In-cluster:   {{ include "claude-agents.fullname" . }}-registry.{{ .Values.global.namespace }}.svc.cluster.local:5000
+  External:     192.168.100.10:{{ .Values.registry.nodePort }} (or any node IP)
+
+  Push your agent image from WSL:
+    podman build -t claude-agent:latest .
+    podman push 192.168.100.10:{{ .Values.registry.nodePort }}/claude-agent:latest --tls-verify=false
+
+  Verify images in registry:
+    curl http://192.168.100.10:{{ .Values.registry.nodePort }}/v2/_catalog
+
+  IMPORTANT — tell containerd on each node to trust the registry:
+    ssh pdawson@192.168.100.10 "sudo /bin/bash -c 'cat >> /etc/containerd/config.toml << EOF
+
+[plugins.\"io.containerd.grpc.v1.cri\".registry.mirrors.\"192.168.100.10:{{ .Values.registry.nodePort }}\"]
+  endpoint = [\"http://192.168.100.10:{{ .Values.registry.nodePort }}\"]
+EOF
+systemctl restart containerd'"
+
+  Run the same command for 192.168.100.11 and 192.168.100.12.
+
+  Push images via ingress (after /etc/hosts is set):
+    podman push registry.{{ .Values.ingress.domain }}/claude-agent:latest --tls-verify=false
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+INGRESS URLS:
+  Webhook:   http://webhook.{{ .Values.ingress.domain }}
+  Registry:  http://registry.{{ .Values.ingress.domain }}
+
+  Add to WSL /etc/hosts:
+    echo "$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}') webhook.{{ .Values.ingress.domain }} registry.{{ .Values.ingress.domain }}" | sudo tee -a /etc/hosts
+
+  Or use a worker node IP directly:
+    echo "192.168.100.11  webhook.{{ .Values.ingress.domain }} registry.{{ .Values.ingress.domain }}" | sudo tee -a /etc/hosts
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
+
+AGENTS ENABLED:
+{{- range $agent, $config := .Values.agents }}
+{{- if $config.enabled }}
+  ✓ {{ $agent | title }} — triggers: {{ $config.triggers | join ", " }}
+{{- end }}
+{{- end }}
+
+MEMORY:
+  PVC:        {{ include "claude-agents.fullname" . }}-memory ({{ .Values.memory.size }})
+  Mount path: {{ .Values.memory.mountPath }}
+
+  Inspect memory contents:
+    kubectl exec -n {{ .Values.global.namespace }} \
+      $(kubectl get pod -n {{ .Values.global.namespace }} -l app.kubernetes.io/name=webhook-dispatcher -o name) \
+      -- ls /memory
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PIPELINE FLOW:
+
+  issue.opened
+       ↓
+  [Architect] → writes spec → /memory/specs/
+       ↓
+  [Coder]     → writes code → /memory/workspace/
+       ↓
+  [Tester]    → writes tests → /memory/workspace/tests/
+       ↓
+  [Reviewer]  → writes review → /memory/reviews/
+       ↓
+  [Ops]       → deploys → /memory/deployments/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+To uninstall (memory PVC is preserved by default):
+  helm uninstall {{ .Release.Name }} -n {{ .Values.global.namespace }}

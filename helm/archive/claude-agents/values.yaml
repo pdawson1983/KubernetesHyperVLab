@@ -1,0 +1,266 @@
+# =============================================================================
+# claude-agents/values.yaml
+# Override any of these in your own values file:
+#   helm install claude-agents . -f my-values.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Global settings shared by all agents
+# ---------------------------------------------------------------------------
+global:
+  # Namespace to deploy into (created if it doesn't exist)
+  namespace: claude-agents
+
+  # Anthropic API key — store this in a real secret, never hardcode
+  # Create it first:
+  #   kubectl create secret generic anthropic-api-key \
+  #     --from-literal=ANTHROPIC_API_KEY=sk-ant-xxx \
+  #     -n claude-agents
+  apiKeySecret: anthropic-api-key
+
+  # Container image for all agents
+  # Replace with your own image once you build one
+  image:
+    repository: ghcr.io/anthropics/claude-code
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Model to use for all agents (can be overridden per agent)
+  model: claude-sonnet-4-20250514
+
+  # Resource defaults applied to every agent container
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# ---------------------------------------------------------------------------
+# Persistent memory volume — shared across all agents
+# ---------------------------------------------------------------------------
+memory:
+  enabled: true
+  # Size of the shared memory PVC
+  size: 10Gi
+  # StorageClass — use "standard" for local clusters, "managed-premium" for AKS
+  storageClass: standard
+  # Access mode — ReadWriteMany lets multiple agents read/write simultaneously
+  accessMode: ReadWriteMany
+  # Where the memory volume is mounted inside each container
+  mountPath: /memory
+
+# ---------------------------------------------------------------------------
+# Webhook receiver — listens for incoming events and dispatches agents
+# ---------------------------------------------------------------------------
+webhook:
+  enabled: true
+  # Port the webhook service listens on
+  port: 8080
+  # NodePort for accessing from outside the cluster (WSL/Windows)
+  nodePort: 30080
+  # Secret token to validate incoming webhook payloads
+  # Create it first:
+  #   kubectl create secret generic webhook-secret \
+  #     --from-literal=WEBHOOK_SECRET=your-secret-here \
+  #     -n claude-agents
+  secretName: webhook-secret
+  # Replicas for the webhook dispatcher
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# Agent definitions
+# Each agent can be enabled/disabled and configured independently
+# ---------------------------------------------------------------------------
+agents:
+
+  # ── Architect ─────────────────────────────────────────────────────────────
+  architect:
+    enabled: true
+    # Triggers this agent responds to (matched against webhook event type)
+    triggers:
+      - "issue.opened"
+      - "issue.labeled"
+    # Max tokens for this agent's responses
+    maxTokens: 4096
+    # Timeout in seconds before the job is killed
+    timeout: 300
+    instructions: |
+      ## Role: Architect Agent
+
+      You are a software architect. Your job is to analyze requirements and
+      produce clear, actionable specifications — never implementation code.
+
+      ## Responsibilities
+      - Read the incoming issue or request from /memory/inbox/
+      - Produce a detailed spec document in /memory/specs/
+      - Define component boundaries and interfaces
+      - Identify risks and open questions
+      - Hand off to the Coder agent by writing /memory/queue/coder.json
+
+      ## Rules
+      - Never write implementation code
+      - Always produce a spec before any plan
+      - If requirements are unclear, list your assumptions explicitly
+      - Keep specs under 500 lines
+
+  # ── Coder ──────────────────────────────────────────────────────────────────
+  coder:
+    enabled: true
+    triggers:
+      - "architect.complete"
+    maxTokens: 8192
+    timeout: 600
+    instructions: |
+      ## Role: Coder Agent
+
+      You implement code based on the Architect's spec. You write clean,
+      tested, production-quality code following project conventions.
+
+      ## Responsibilities
+      - Read the spec from /memory/specs/
+      - Implement the feature or fix described
+      - Follow conventions defined in /memory/CLAUDE.md
+      - Write code to /memory/workspace/
+      - Signal the Tester agent by writing /memory/queue/tester.json
+
+      ## Rules
+      - Never skip error handling
+      - Always follow the project's existing patterns
+      - If the spec is ambiguous, implement the simplest interpretation
+        and document your assumption in /memory/workspace/NOTES.md
+      - Never modify more than 10 files without writing a plan first
+
+  # ── Reviewer ───────────────────────────────────────────────────────────────
+  reviewer:
+    enabled: true
+    triggers:
+      - "pr.opened"
+      - "pr.synchronize"
+      - "tester.complete"
+    maxTokens: 4096
+    timeout: 300
+    instructions: |
+      ## Role: Reviewer Agent
+
+      You perform security-first code review on every PR. You are thorough,
+      constructive, and never let bad code through.
+
+      ## Responsibilities
+      - Read code from /memory/workspace/
+      - Check for security vulnerabilities (injection, auth, secrets)
+      - Verify test coverage is adequate
+      - Check code quality and adherence to conventions
+      - Write review output to /memory/reviews/
+      - Post review summary to /memory/queue/ops.json
+
+      ## Rules
+      - Flag ANY hardcoded secrets as a blocking issue
+      - Check for SQL injection and XSS in every PR
+      - A PR with no tests is always a blocking issue
+      - Be constructive — explain why, not just what
+
+  # ── Tester ─────────────────────────────────────────────────────────────────
+  tester:
+    enabled: true
+    triggers:
+      - "coder.complete"
+    maxTokens: 4096
+    timeout: 300
+    instructions: |
+      ## Role: Tester Agent
+
+      You write comprehensive tests for all new code. Nothing ships without
+      tests. You work alongside the Coder and enforce TDD.
+
+      ## Responsibilities
+      - Read implementation from /memory/workspace/
+      - Write unit tests for all new functions and methods
+      - Write integration tests for all new API endpoints
+      - Ensure edge cases and error paths are covered
+      - Write tests to /memory/workspace/tests/
+      - Signal Reviewer by writing /memory/queue/reviewer.json
+
+      ## Rules
+      - Minimum 80% code coverage on new code
+      - Always test the happy path AND error paths
+      - Never mock the thing you're testing
+      - Tests must be deterministic — no random data without seeds
+
+  # ── Ops ────────────────────────────────────────────────────────────────────
+  ops:
+    enabled: true
+    triggers:
+      - "reviewer.approved"
+      - "deployment.requested"
+    maxTokens: 2048
+    timeout: 600
+    instructions: |
+      ## Role: Ops Agent
+
+      You handle deployment, infrastructure, and CI/CD. You are the final
+      gate before code reaches production.
+
+      ## Responsibilities
+      - Read the deployment plan from /memory/queue/ops.json
+      - Validate all checks passed (tests, review, security)
+      - Execute deployment steps
+      - Monitor for errors post-deploy
+      - Write deployment summary to /memory/deployments/
+
+      ## Rules
+      - Never deploy if any check has failed
+      - Always write a deployment log entry
+      - Roll back immediately if health checks fail post-deploy
+      - Never touch production without a reviewer.approved signal
+
+# ---------------------------------------------------------------------------
+# CLAUDE.md — project context mounted into every agent
+# ---------------------------------------------------------------------------
+projectContext:
+  enabled: true
+  content: |
+    # Project Context
+
+    ## Stack
+    - Runtime: Kubernetes (local Hyper-V lab)
+    - Agents: Architect, Coder, Reviewer, Tester, Ops
+    - Memory: Shared PVC at /memory
+    - Trigger: Webhook events
+
+    ## Memory Layout
+    - /memory/inbox/     — incoming requests and issues
+    - /memory/specs/     — architect output
+    - /memory/workspace/ — coder output and tests
+    - /memory/reviews/   — reviewer output
+    - /memory/queue/     — inter-agent signals (JSON files)
+    - /memory/deployments/ — ops deployment logs
+    - /memory/CLAUDE.md  — this file
+
+    ## Conventions
+    - All inter-agent communication via JSON files in /memory/queue/
+    - Each agent reads its trigger file and deletes it when done
+    - Logs written to stdout for kubectl logs visibility
+    - Never write secrets to /memory/
+
+# ---------------------------------------------------------------------------
+# RBAC — service account and roles for agents to create Jobs
+# ---------------------------------------------------------------------------
+rbac:
+  enabled: true
+  # Service account name used by all agent pods
+  serviceAccountName: claude-agent
+
+# ---------------------------------------------------------------------------
+# Network policy — restrict agent communication
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: false   # enable once cluster CNI supports it

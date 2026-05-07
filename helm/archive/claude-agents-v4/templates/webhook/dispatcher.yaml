@@ -1,0 +1,206 @@
+{{- if .Values.webhook.enabled }}
+# =============================================================================
+# Webhook Dispatcher
+# Lightweight HTTP server that receives events and creates agent Jobs.
+# Uses an init container to install kubectl from bitnami/kubectl image.
+# =============================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webhook
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/name: webhook-dispatcher
+spec:
+  replicas: {{ .Values.webhook.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webhook-dispatcher
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.labels" . | nindent 8 }}
+        app.kubernetes.io/name: webhook-dispatcher
+        app.kubernetes.io/component: webhook
+    spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      initContainers:
+        - name: install-kubectl
+          image: bitnami/kubectl:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - cp
+            - /opt/bitnami/kubectl/bin/kubectl
+            - /tools/kubectl
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+      containers:
+        - name: dispatcher
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+          env:
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.webhook.secretName }}
+                  key: WEBHOOK_SECRET
+            - name: NAMESPACE
+              value: {{ .Values.global.namespace }}
+            - name: RELEASE_NAME
+              value: {{ .Release.Name }}
+            - name: PORT
+              value: {{ .Values.webhook.port | quote }}
+          volumeMounts:
+            - name: tools
+              mountPath: /usr/local/bin/kubectl
+              subPath: kubectl
+          command:
+            - python3
+            - -c
+            - |
+              import os, json, hmac, hashlib, sys
+              from http.server import HTTPServer, BaseHTTPRequestHandler
+              from subprocess import run
+
+              SECRET = os.environ.get("WEBHOOK_SECRET", "").encode()
+              NAMESPACE = os.environ.get("NAMESPACE", "claude-agents")
+              RELEASE = os.environ.get("RELEASE_NAME", "release")
+              PORT = int(os.environ.get("PORT", 8080))
+
+              TRIGGER_MAP = {
+                "issue.opened":         "architect",
+                "issue.labeled":        "architect",
+                "architect.complete":   "coder",
+                "coder.complete":       "tester",
+                "tester.complete":      "reviewer",
+                "pr.opened":            "reviewer",
+                "pr.synchronize":       "reviewer",
+                "reviewer.approved":    "ops",
+                "deployment.requested": "ops",
+              }
+
+              class Handler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                  if self.path in ("/healthz", "/readyz"):
+                    body = b'{"status":"ok"}'
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                  else:
+                    self.send_response(404)
+                    self.end_headers()
+
+                def do_POST(self):
+                  length = int(self.headers.get("Content-Length", 0))
+                  body = self.rfile.read(length)
+
+                  if SECRET:
+                    sig = self.headers.get("X-Hub-Signature-256", "")
+                    expected = "sha256=" + hmac.new(SECRET, body, hashlib.sha256).hexdigest()
+                    if not hmac.compare_digest(sig, expected):
+                      print("[dispatcher] Invalid signature - rejected", flush=True)
+                      self.send_response(401)
+                      self.end_headers()
+                      return
+
+                  try:
+                    payload = json.loads(body)
+                    event_type = payload.get("event") or self.headers.get("X-Event-Type", "")
+                    agent = TRIGGER_MAP.get(event_type)
+                    print("[dispatcher] event=" + str(event_type) + " agent=" + str(agent), flush=True)
+
+                    if agent:
+                      job_name = RELEASE + "-claude-agents-" + agent + "-" + os.urandom(4).hex()
+                      source_job = "job/" + RELEASE + "-claude-agents-" + agent
+                      print("[dispatcher] creating job=" + job_name + " from=" + source_job, flush=True)
+                      result = run(
+                        ["kubectl", "create", "job", job_name,
+                         "--from", source_job,
+                         "-n", NAMESPACE],
+                        capture_output=True, text=True
+                      )
+                      if result.returncode == 0:
+                        print("[dispatcher] created job=" + job_name, flush=True)
+                        resp = json.dumps({"dispatched": agent, "job": job_name}).encode()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(resp)))
+                        self.end_headers()
+                        self.wfile.write(resp)
+                      else:
+                        print("[dispatcher] job creation failed stdout=" + result.stdout + " stderr=" + result.stderr, flush=True)
+                        self.send_response(500)
+                        self.end_headers()
+                    else:
+                      print("[dispatcher] no agent mapped for event=" + str(event_type), flush=True)
+                      self.send_response(204)
+                      self.end_headers()
+                  except Exception as e:
+                    print("[dispatcher] error=" + str(e), flush=True)
+                    self.send_response(500)
+                    self.end_headers()
+
+                def log_message(self, format, *args):
+                  pass
+
+              print("[dispatcher] listening on port " + str(PORT), flush=True)
+              sys.stdout.flush()
+              HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+          resources:
+            requests:
+              cpu: {{ .Values.webhook.resources.requests.cpu }}
+              memory: {{ .Values.webhook.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.webhook.resources.limits.cpu }}
+              memory: {{ .Values.webhook.resources.limits.memory }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: tools
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webhook
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+spec:
+  type: {{ .Values.webhook.serviceType }}
+  selector:
+    app.kubernetes.io/name: webhook-dispatcher
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.webhook.port }}
+      targetPort: http
+      {{- if eq .Values.webhook.serviceType "NodePort" }}
+      nodePort: {{ .Values.webhook.nodePort }}
+      {{- end }}
+      protocol: TCP
+{{- end }}

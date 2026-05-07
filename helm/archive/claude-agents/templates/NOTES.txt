@@ -1,0 +1,87 @@
+╔══════════════════════════════════════════════════════════╗
+║          claude-agents installed successfully!           ║
+╚══════════════════════════════════════════════════════════╝
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Values.global.namespace }}
+Version:   {{ .Chart.Version }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BEFORE THE PIPELINE WORKS — create these two secrets:
+
+  # 1. Anthropic API key
+  kubectl create secret generic anthropic-api-key \
+    --from-literal=ANTHROPIC_API_KEY=sk-ant-your-key-here \
+    -n {{ .Values.global.namespace }}
+
+  # 2. Webhook validation secret
+  kubectl create secret generic webhook-secret \
+    --from-literal=WEBHOOK_SECRET=your-secret-here \
+    -n {{ .Values.global.namespace }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SEND A TEST WEBHOOK EVENT:
+
+  curl -X POST http://192.168.100.11:{{ .Values.webhook.nodePort }} \
+    -H "Content-Type: application/json" \
+    -H "X-Event-Type: issue.opened" \
+    -d '{"event": "issue.opened", "title": "Add login page", "body": "Users need a login page with email and password"}'
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WATCH THE PIPELINE RUN:
+
+  # Watch jobs spin up
+  kubectl get jobs -n {{ .Values.global.namespace }} -w
+
+  # Watch all pods
+  kubectl get pods -n {{ .Values.global.namespace }} -w
+
+  # Follow dispatcher logs
+  kubectl logs -n {{ .Values.global.namespace }} \
+    -l app.kubernetes.io/name=webhook-dispatcher -f
+
+  # Follow a specific agent's logs
+  kubectl logs -n {{ .Values.global.namespace }} \
+    -l claude-agents/role=architect -f
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AGENTS ENABLED:
+{{- range $agent, $config := .Values.agents }}
+{{- if $config.enabled }}
+  ✓ {{ $agent | title }} — triggers: {{ $config.triggers | join ", " }}
+{{- end }}
+{{- end }}
+
+MEMORY:
+  PVC:        {{ include "claude-agents.fullname" . }}-memory ({{ .Values.memory.size }})
+  Mount path: {{ .Values.memory.mountPath }}
+
+  Inspect memory contents:
+    kubectl exec -n {{ .Values.global.namespace }} \
+      $(kubectl get pod -n {{ .Values.global.namespace }} -l app.kubernetes.io/name=webhook-dispatcher -o name) \
+      -- ls /memory
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PIPELINE FLOW:
+
+  issue.opened
+       ↓
+  [Architect] → writes spec → /memory/specs/
+       ↓
+  [Coder]     → writes code → /memory/workspace/
+       ↓
+  [Tester]    → writes tests → /memory/workspace/tests/
+       ↓
+  [Reviewer]  → writes review → /memory/reviews/
+       ↓
+  [Ops]       → deploys → /memory/deployments/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+To uninstall (memory PVC is preserved by default):
+  helm uninstall {{ .Release.Name }} -n {{ .Values.global.namespace }}

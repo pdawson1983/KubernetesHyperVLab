@@ -1,0 +1,279 @@
+# =============================================================================
+# claude-agents/values.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Global settings
+# ---------------------------------------------------------------------------
+global:
+  namespace: claude-agents
+  apiKeySecret: anthropic-api-key
+  image:
+    # After pushing: podman push 192.168.100.11:30500/claude-agent:latest --tls-verify=false
+    repository: docker.io/pdawson1983/claude-agent
+    tag: latest
+    pullPolicy: Always
+  model: claude-sonnet-4-20250514
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# ---------------------------------------------------------------------------
+# Persistent memory volume — shared across all agents via NFS (ReadWriteMany)
+# ---------------------------------------------------------------------------
+memory:
+  enabled: true
+  size: 10Gi
+  storageClass: "nfs"
+  accessMode: ReadWriteMany
+  mountPath: /memory
+
+# ---------------------------------------------------------------------------
+# Webhook receiver
+# ---------------------------------------------------------------------------
+webhook:
+  enabled: true
+  port: 8080
+  # ClusterIP — ingress handles external access
+  serviceType: ClusterIP
+  nodePort: 30080
+  secretName: webhook-secret
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# Agent definitions
+# ---------------------------------------------------------------------------
+agents:
+
+  architect:
+    enabled: true
+    triggers:
+      - "issue.opened"
+      - "issue.labeled"
+    maxTokens: 4096
+    timeout: 300
+    instructions: |
+      ## Role: Architect Agent
+
+      You are a software architect. Your job is to analyze requirements and
+      produce clear, actionable specifications — never implementation code.
+
+      ## Responsibilities
+      - Read the incoming issue or request from /memory/inbox/
+      - Produce a detailed spec document in /memory/specs/
+      - Define component boundaries and interfaces
+      - Identify risks and open questions
+      - Hand off to the Coder agent by writing /memory/queue/coder.json
+
+      ## Rules
+      - Never write implementation code
+      - Always produce a spec before any plan
+      - If requirements are unclear, list your assumptions explicitly
+      - Keep specs under 500 lines
+
+  coder:
+    enabled: true
+    triggers:
+      - "architect.complete"
+    maxTokens: 8192
+    timeout: 600
+    instructions: |
+      ## Role: Coder Agent
+
+      You implement code based on the Architect's spec.
+
+      ## Responsibilities
+      - Read the spec from /memory/specs/
+      - Implement the feature or fix described
+      - Follow conventions defined in /memory/CLAUDE.md
+      - Write code to /memory/workspace/
+      - Signal the Tester agent by writing /memory/queue/tester.json
+
+      ## Rules
+      - Never skip error handling
+      - Always follow the project's existing patterns
+      - Never modify more than 10 files without writing a plan first
+
+  reviewer:
+    enabled: true
+    triggers:
+      - "pr.opened"
+      - "pr.synchronize"
+      - "tester.complete"
+    maxTokens: 4096
+    timeout: 300
+    instructions: |
+      ## Role: Reviewer Agent
+
+      You perform security-first code review on every PR.
+
+      ## Responsibilities
+      - Read code from /memory/workspace/
+      - Check for security vulnerabilities
+      - Verify test coverage is adequate
+      - Write review output to /memory/reviews/
+      - Post review summary to /memory/queue/ops.json
+
+      ## Rules
+      - Flag ANY hardcoded secrets as a blocking issue
+      - A PR with no tests is always a blocking issue
+      - Be constructive — explain why, not just what
+
+  tester:
+    enabled: true
+    triggers:
+      - "coder.complete"
+    maxTokens: 4096
+    timeout: 300
+    instructions: |
+      ## Role: Tester Agent
+
+      You write comprehensive tests for all new code.
+
+      ## Responsibilities
+      - Read implementation from /memory/workspace/
+      - Write unit and integration tests
+      - Ensure edge cases and error paths are covered
+      - Write tests to /memory/workspace/tests/
+      - Signal Reviewer by writing /memory/queue/reviewer.json
+
+      ## Rules
+      - Minimum 80% code coverage on new code
+      - Always test the happy path AND error paths
+      - Tests must be deterministic
+
+  ops:
+    enabled: true
+    triggers:
+      - "reviewer.approved"
+      - "deployment.requested"
+    maxTokens: 2048
+    timeout: 600
+    instructions: |
+      ## Role: Ops Agent
+
+      You handle deployment, infrastructure, and CI/CD.
+
+      ## Responsibilities
+      - Read the deployment plan from /memory/queue/ops.json
+      - Validate all checks passed
+      - Execute deployment steps
+      - Write deployment summary to /memory/deployments/
+
+      ## Rules
+      - Never deploy if any check has failed
+      - Always write a deployment log entry
+      - Roll back immediately if health checks fail
+
+# ---------------------------------------------------------------------------
+# Project context — mounted as /memory/CLAUDE.md in every agent
+# ---------------------------------------------------------------------------
+projectContext:
+  enabled: true
+  content: |
+    # Project Context
+
+    ## Stack
+    - Runtime: Kubernetes (local Hyper-V lab)
+    - Agents: Architect, Coder, Reviewer, Tester, Ops
+    - Memory: Shared PVC at /memory
+
+    ## Memory Layout
+    - /memory/inbox/       — incoming requests
+    - /memory/specs/       — architect output
+    - /memory/workspace/   — coder output and tests
+    - /memory/reviews/     — reviewer output
+    - /memory/queue/       — inter-agent signals
+    - /memory/deployments/ — ops deployment logs
+
+    ## Conventions
+    - Inter-agent communication via JSON files in /memory/queue/
+    - Logs written to stdout for kubectl logs visibility
+    - Never write secrets to /memory/
+
+# ---------------------------------------------------------------------------
+# RBAC
+# ---------------------------------------------------------------------------
+rbac:
+  enabled: true
+  serviceAccountName: claude-agent
+
+# ---------------------------------------------------------------------------
+# In-cluster container registry
+# Uses NodePort for both push (from WSL) and pull (from nodes).
+# No ingress — avoids TLS complexity for registry operations.
+#
+# Push from WSL:
+#   podman push 192.168.100.11:30500/claude-agent:latest --tls-verify=false
+#
+# Nodes pull from:
+#   192.168.100.11:30500/claude-agent:latest
+#
+# containerd trust config (run once per node):
+#   mkdir -p /etc/containerd/certs.d/192.168.100.11:30500
+#   cat > /etc/containerd/certs.d/192.168.100.11:30500/hosts.toml << EOF
+#   server = "http://192.168.100.11:30500"
+#   [host."http://192.168.100.11:30500"]
+#     capabilities = ["pull", "resolve", "push"]
+#     skip_verify = true
+#   EOF
+#   systemctl restart containerd
+# ---------------------------------------------------------------------------
+registry:
+  enabled: true
+  image:
+    tag: "2"
+    pullPolicy: IfNotPresent
+  # NodePort — used for both push from WSL and pull from nodes
+  serviceType: NodePort
+  nodePort: 30500
+  logLevel: info
+  storage:
+    size: 20Gi
+    storageClass: "local-path"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  auth:
+    enabled: false
+    secretName: registry-auth
+
+# ---------------------------------------------------------------------------
+# Ingress — webhook only
+# Registry does NOT go through ingress (avoids TLS cert issues with containerd)
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  domain: k8s.local
+  className: nginx
+  annotations: {}
+  # Webhook ingress — enabled
+  webhook:
+    enabled: true
+  # Registry ingress — disabled, uses NodePort directly
+  registry:
+    enabled: false
+  tls:
+    enabled: false
+    secretName: k8s-local-tls
+
+# ---------------------------------------------------------------------------
+# Network policy
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: false

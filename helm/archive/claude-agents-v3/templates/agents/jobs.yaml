@@ -1,0 +1,234 @@
+# =============================================================================
+# Agent Job Templates
+# Each agent runs as a Kubernetes Job — a pod that runs to completion.
+# The webhook dispatcher creates these Jobs when it receives matching events.
+# Jobs are self-cleaning (ttlSecondsAfterFinished) so they don't pile up.
+#
+# Flow:
+#   webhook event → dispatcher → creates Job → agent pod runs → writes to /memory
+# =============================================================================
+
+{{- if .Values.agents.architect.enabled }}
+---
+# Architect Job Template
+# Triggered by: issue.opened, issue.labeled
+# Reads from:   /memory/inbox/
+# Writes to:    /memory/specs/, /memory/queue/coder.json
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-architect
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.agentLabels" (dict "agent" "architect" "root" .) | nindent 4 }}
+  annotations:
+    claude-agents/triggers: {{ .Values.agents.architect.triggers | join "," | quote }}
+spec:
+  # Clean up completed jobs after 1 hour
+  ttlSecondsAfterFinished: 3600
+  # Don't retry on failure — agent should handle its own errors
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.agentLabels" (dict "agent" "architect" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      restartPolicy: Never
+      # Init container sets up the memory directory structure
+      initContainers:
+        - name: setup-memory
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /memory/inbox /memory/specs /memory/queue \
+                       /memory/workspace /memory/reviews /memory/deployments
+          volumeMounts:
+            - name: agent-memory
+              mountPath: /memory
+      containers:
+        - name: architect
+          image: {{ .Values.global.image.repository }}:{{ .Values.global.image.tag }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          env:
+            {{- include "claude-agents.agentEnv" . | nindent 12 }}
+            - name: AGENT_TIMEOUT
+              value: {{ .Values.agents.architect.timeout | quote }}
+            - name: MAX_TOKENS
+              value: {{ .Values.agents.architect.maxTokens | quote }}
+          volumeMounts:
+            {{- include "claude-agents.agentVolumeMounts" . | nindent 12 }}
+          {{- include "claude-agents.resources" . | nindent 10 }}
+      volumes:
+        {{- include "claude-agents.agentVolumes" (dict "agent" "architect" "root" .) | nindent 8 }}
+{{- end }}
+
+{{- if .Values.agents.coder.enabled }}
+---
+# Coder Job Template
+# Triggered by: architect.complete
+# Reads from:   /memory/specs/, /memory/CLAUDE.md
+# Writes to:    /memory/workspace/, /memory/queue/tester.json
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-coder
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.agentLabels" (dict "agent" "coder" "root" .) | nindent 4 }}
+  annotations:
+    claude-agents/triggers: {{ .Values.agents.coder.triggers | join "," | quote }}
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.agentLabels" (dict "agent" "coder" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      restartPolicy: OnFailure
+      containers:
+        - name: coder
+          image: {{ .Values.global.image.repository }}:{{ .Values.global.image.tag }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          env:
+            {{- include "claude-agents.agentEnv" . | nindent 12 }}
+            - name: AGENT_TIMEOUT
+              value: {{ .Values.agents.coder.timeout | quote }}
+            - name: MAX_TOKENS
+              value: {{ .Values.agents.coder.maxTokens | quote }}
+          volumeMounts:
+            {{- include "claude-agents.agentVolumeMounts" . | nindent 12 }}
+          {{- include "claude-agents.resources" . | nindent 10 }}
+      volumes:
+        {{- include "claude-agents.agentVolumes" (dict "agent" "coder" "root" .) | nindent 8 }}
+{{- end }}
+
+{{- if .Values.agents.reviewer.enabled }}
+---
+# Reviewer Job Template
+# Triggered by: pr.opened, pr.synchronize, tester.complete
+# Reads from:   /memory/workspace/
+# Writes to:    /memory/reviews/, /memory/queue/ops.json
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-reviewer
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.agentLabels" (dict "agent" "reviewer" "root" .) | nindent 4 }}
+  annotations:
+    claude-agents/triggers: {{ .Values.agents.reviewer.triggers | join "," | quote }}
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.agentLabels" (dict "agent" "reviewer" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      restartPolicy: Never
+      containers:
+        - name: reviewer
+          image: {{ .Values.global.image.repository }}:{{ .Values.global.image.tag }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          env:
+            {{- include "claude-agents.agentEnv" . | nindent 12 }}
+            - name: AGENT_TIMEOUT
+              value: {{ .Values.agents.reviewer.timeout | quote }}
+            - name: MAX_TOKENS
+              value: {{ .Values.agents.reviewer.maxTokens | quote }}
+          volumeMounts:
+            {{- include "claude-agents.agentVolumeMounts" . | nindent 12 }}
+          {{- include "claude-agents.resources" . | nindent 10 }}
+      volumes:
+        {{- include "claude-agents.agentVolumes" (dict "agent" "reviewer" "root" .) | nindent 8 }}
+{{- end }}
+
+{{- if .Values.agents.tester.enabled }}
+---
+# Tester Job Template
+# Triggered by: coder.complete
+# Reads from:   /memory/workspace/
+# Writes to:    /memory/workspace/tests/, /memory/queue/reviewer.json
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-tester
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.agentLabels" (dict "agent" "tester" "root" .) | nindent 4 }}
+  annotations:
+    claude-agents/triggers: {{ .Values.agents.tester.triggers | join "," | quote }}
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.agentLabels" (dict "agent" "tester" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      restartPolicy: Never
+      containers:
+        - name: tester
+          image: {{ .Values.global.image.repository }}:{{ .Values.global.image.tag }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          env:
+            {{- include "claude-agents.agentEnv" . | nindent 12 }}
+            - name: AGENT_TIMEOUT
+              value: {{ .Values.agents.tester.timeout | quote }}
+            - name: MAX_TOKENS
+              value: {{ .Values.agents.tester.maxTokens | quote }}
+          volumeMounts:
+            {{- include "claude-agents.agentVolumeMounts" . | nindent 12 }}
+          {{- include "claude-agents.resources" . | nindent 10 }}
+      volumes:
+        {{- include "claude-agents.agentVolumes" (dict "agent" "tester" "root" .) | nindent 8 }}
+{{- end }}
+
+{{- if .Values.agents.ops.enabled }}
+---
+# Ops Job Template
+# Triggered by: reviewer.approved, deployment.requested
+# Reads from:   /memory/queue/ops.json, /memory/reviews/
+# Writes to:    /memory/deployments/
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-ops
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.agentLabels" (dict "agent" "ops" "root" .) | nindent 4 }}
+  annotations:
+    claude-agents/triggers: {{ .Values.agents.ops.triggers | join "," | quote }}
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.agentLabels" (dict "agent" "ops" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      restartPolicy: Never
+      containers:
+        - name: ops
+          image: {{ .Values.global.image.repository }}:{{ .Values.global.image.tag }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          env:
+            {{- include "claude-agents.agentEnv" . | nindent 12 }}
+            - name: AGENT_TIMEOUT
+              value: {{ .Values.agents.ops.timeout | quote }}
+            - name: MAX_TOKENS
+              value: {{ .Values.agents.ops.maxTokens | quote }}
+          volumeMounts:
+            {{- include "claude-agents.agentVolumeMounts" . | nindent 12 }}
+          {{- include "claude-agents.resources" . | nindent 10 }}
+      volumes:
+        {{- include "claude-agents.agentVolumes" (dict "agent" "ops" "root" .) | nindent 8 }}
+{{- end }}
