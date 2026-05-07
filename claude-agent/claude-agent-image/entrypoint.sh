@@ -53,6 +53,7 @@ mkdir -p \
   "${MEMORY_PATH}/inbox" \
   "${MEMORY_PATH}/specs" \
   "${MEMORY_PATH}/queue" \
+  "${MEMORY_PATH}/queue/active" \
   "${MEMORY_PATH}/workspace" \
   "${MEMORY_PATH}/reviews" \
   "${MEMORY_PATH}/deployments" \
@@ -70,7 +71,13 @@ if [ "$ROLE" = "architect" ]; then
   [ -z "$PAYLOAD_FILE" ] && die "No payload found in ${MEMORY_PATH}/inbox/"
 else
   PAYLOAD_FILE="${MEMORY_PATH}/queue/${ROLE}.json"
-  [ -f "$PAYLOAD_FILE" ] || die "No trigger file found at $PAYLOAD_FILE"
+  if [ ! -f "$PAYLOAD_FILE" ]; then
+    # Queue-watcher moves the trigger to queue/active/ before dispatching the
+    # event so the file survives pod scheduling and image pull delays.
+    PAYLOAD_FILE="${MEMORY_PATH}/queue/active/${ROLE}.json"
+    [ -f "$PAYLOAD_FILE" ] || die "No trigger file found at queue/${ROLE}.json or queue/active/${ROLE}.json"
+    log "Reading trigger from active/: $PAYLOAD_FILE"
+  fi
 fi
 
 log "Reading payload from: $PAYLOAD_FILE"

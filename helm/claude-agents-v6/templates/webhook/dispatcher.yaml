@@ -234,6 +234,7 @@ spec:
               MEMORY_PATH = pathlib.Path("/memory")
               QUEUE_PATH = MEMORY_PATH / "queue"
               PROCESSED_PATH = QUEUE_PATH / "processed"
+              ACTIVE_PATH = QUEUE_PATH / "active"
 
               # Map queue filenames to event types
               FILE_TO_EVENT = {
@@ -268,6 +269,7 @@ spec:
 
               QUEUE_PATH.mkdir(parents=True, exist_ok=True)
               PROCESSED_PATH.mkdir(parents=True, exist_ok=True)
+              ACTIVE_PATH.mkdir(parents=True, exist_ok=True)
 
               print("[queue-watcher] watching " + str(QUEUE_PATH) + " every " + str(POLL_INTERVAL) + "s", flush=True)
 
@@ -286,13 +288,18 @@ spec:
                         payload_bytes = json.dumps({"event": event_type}).encode()
 
                       print("[queue-watcher] found " + queue_file + " -> " + event_type, flush=True)
-                      send_event(event_type, payload_bytes)
 
-                      # Archive the processed file
+                      # Move to active/ before dispatching so the agent pod can
+                      # find it there while the job is in flight. The agent
+                      # deletes it on success; queue-watcher archives on next
+                      # pass if it's still present after job completion.
                       import shutil
-                      ts = str(int(time.time()))
-                      shutil.move(str(full_path), str(PROCESSED_PATH / (queue_file + "-" + ts)))
-                      print("[queue-watcher] archived " + queue_file, flush=True)
+                      active_file = ACTIVE_PATH / queue_file
+                      shutil.move(str(full_path), str(active_file))
+                      print("[queue-watcher] moved " + queue_file + " -> active/", flush=True)
+
+                      send_event(event_type, payload_bytes)
+                      print("[queue-watcher] dispatched " + event_type, flush=True)
                     except Exception as e:
                       print("[queue-watcher] error processing " + queue_file + ": " + str(e), flush=True)
 
