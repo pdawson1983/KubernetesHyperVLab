@@ -131,19 +131,18 @@ spec:
                       job_name = RELEASE + "-claude-agents-" + agent + "-" + os.urandom(4).hex()
                       source_job = "cronjob/" + RELEASE + "-claude-agents-" + agent
 
-                      # Write payload to /memory/inbox/ for architect
-                      # Write payload to /memory/queue/<agent>.json for others
+                      # Only write an inbox file for architect. For all other
+                      # agents the trigger file was already written by the
+                      # previous agent and moved to queue/active/ by the
+                      # queue-watcher. Writing back to queue/ here would cause
+                      # the queue-watcher to re-fire the event on its next poll,
+                      # creating an infinite spawn loop.
                       if agent == "architect":
                         target_dir = MEMORY_PATH / "inbox"
                         target_dir.mkdir(parents=True, exist_ok=True)
                         target_file = target_dir / (job_name + ".json")
-                      else:
-                        target_dir = MEMORY_PATH / "queue"
-                        target_dir.mkdir(parents=True, exist_ok=True)
-                        target_file = target_dir / (agent + ".json")
-
-                      target_file.write_text(body.decode("utf-8"))
-                      print("[dispatcher] wrote payload to " + str(target_file), flush=True)
+                        target_file.write_text(body.decode("utf-8"))
+                        print("[dispatcher] wrote inbox payload to " + str(target_file), flush=True)
 
                       print("[dispatcher] creating job=" + job_name + " from=" + source_job, flush=True)
                       result = run(
@@ -162,7 +161,6 @@ spec:
                         self.wfile.write(resp)
                       else:
                         print("[dispatcher] job creation failed: " + result.stderr, flush=True)
-                        target_file.unlink(missing_ok=True)
                         self.send_response(500)
                         self.end_headers()
                     else:
