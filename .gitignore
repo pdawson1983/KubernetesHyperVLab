@@ -1,4 +1,7 @@
-# Ignore image directories
+# image directories
 Images/
 VMs/
 
+# claude
+.claude/
+CLAUDE.md 
