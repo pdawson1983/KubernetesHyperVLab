@@ -33,9 +33,14 @@ FAILED=0
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
-pass() { echo "  PASS  $*"; PASSED=$((PASSED+1)); }
-fail() { echo "  FAIL  $*"; FAILED=$((FAILED+1)); }
-die()  { echo "ERROR: $*" >&2; cleanup_and_restore; exit 1; }
+pass()  { echo "  PASS  $*"; PASSED=$((PASSED+1)); }
+fail()  { echo "  FAIL  $*"; FAILED=$((FAILED+1)); }
+die()   { echo "ERROR: $*" >&2; cleanup_and_restore; exit 1; }
+is_new() {
+  # is_new <role> <pod-name> — true if pod-name was not in the pre-existing snapshot
+  local pre="${PRE_PODS[$1]:-}"
+  [[ " $pre " != *" $2 "* ]]
+}
 
 # ── Args ─────────────────────────────────────────────────────────────────────
 
@@ -63,6 +68,19 @@ cleanup_and_restore() {
     --set global.maxTurns=10 \
     --set global.model=claude-sonnet-4-20250514 \
     --timeout 60s --wait 2>&1 | grep -E "^Release|upgraded|Error" || true
+}
+
+# ── Snapshot pre-existing pods per role ──────────────────────────────────────
+# Captured before any test activity so wait_for_agent can ignore old pods.
+
+declare -A PRE_PODS
+snapshot_existing_pods() {
+  local role
+  for role in architect coder tester reviewer ops; do
+    PRE_PODS[$role]=$(kubectl get pods -n "$NAMESPACE" \
+      -l "claude-agents/role=$role" \
+      -o jsonpath='{range .items[*]}{.metadata.name} {end}' 2>/dev/null | sed 's/ *$//')
+  done
 }
 
 # ── Pre-flight checks ─────────────────────────────────────────────────────────
@@ -109,8 +127,10 @@ SECRET=$(kubectl get secret webhook-secret -n "$NAMESPACE" \
   -o jsonpath='{.data.WEBHOOK_SECRET}' | base64 -d)
 SIG="sha256=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | cut -d' ' -f2)"
 
-# Record test start for pod filtering
-TEST_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# Snapshot pre-existing pods before the webhook so wait_for_agent can
+# identify new pods unambiguously (no timestamp race conditions).
+snapshot_existing_pods
+log "Pre-existing pods snapshotted"
 
 log "Firing test webhook..."
 HTTP=$(curl -s -o /tmp/pipeline-test-response.txt -w "%{http_code}" \
@@ -140,7 +160,6 @@ wait_for_agent() {
   while true; do
     if [[ $(date +%s) -gt $DEADLINE ]]; then
       fail "$role — timed out after ${TIMEOUT}s"
-      # Print recent dispatcher logs to help diagnose
       echo "  --- dispatcher logs (last 10 lines) ---"
       kubectl logs -n "$NAMESPACE" \
         -l app.kubernetes.io/name=webhook-dispatcher -c dispatcher \
@@ -148,16 +167,20 @@ wait_for_agent() {
       return 1
     fi
 
-    # Find pods for this role created at or after the test start
-    PHASE=$(kubectl get pods -n "$NAMESPACE" \
+    # Find NEW pods for this role — exclude anything in the pre-existing snapshot.
+    # This avoids timestamp race conditions when pods complete very fast (mock mode).
+    PHASE="Pending"
+    while IFS= read -r podname; do
+      [ -z "$podname" ] && continue
+      if is_new "$role" "$podname"; then
+        PHASE=$(kubectl get pod -n "$NAMESPACE" "$podname" \
+          -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
+        break
+      fi
+    done < <(kubectl get pods -n "$NAMESPACE" \
       -l "claude-agents/role=$role" \
-      -o json 2>/dev/null | \
-      jq -r --arg ts "$TEST_START" \
-        '[.items[] | select(.metadata.creationTimestamp >= $ts)] |
-         if length > 0
-         then (sort_by(.metadata.creationTimestamp) | last | .status.phase)
-         else "Pending"
-         end' 2>/dev/null || echo "Pending")
+      --sort-by=.metadata.creationTimestamp \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
 
     case "$PHASE" in
       Succeeded)
