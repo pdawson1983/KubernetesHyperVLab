@@ -172,7 +172,11 @@ wait_for_agent() {
 import json, sys
 
 pre_names = set(sys.argv[1].split()) if sys.argv[1] else set()
-data = json.load(sys.stdin)
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print("Pending|")
+    sys.exit(0)
 new_pods = [p for p in data.get("items", [])
             if p["metadata"]["name"] not in pre_names]
 if not new_pods:
