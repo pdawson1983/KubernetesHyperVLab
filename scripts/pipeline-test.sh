@@ -118,6 +118,20 @@ case "$MODE" in
     ;;
 esac
 
+# ── Clean shared memory before haiku test ────────────────────────────────────
+# Accumulated workspace content from previous runs causes agents to read large
+# volumes of data and exhaust max-turns. Haiku test always starts fresh.
+
+if [ "$MODE" = "haiku" ]; then
+  log "Clearing accumulated pipeline memory for fresh test run..."
+  DISPATCHER_POD=$(kubectl get pod -n "$NAMESPACE" \
+    -l app.kubernetes.io/name=webhook-dispatcher -o name 2>/dev/null | head -1)
+  kubectl exec -n "$NAMESPACE" "$DISPATCHER_POD" -c dispatcher -- \
+    sh -c 'rm -rf /memory/specs/* /memory/workspace/* /memory/reviews/* \
+                  /memory/deployments/* /memory/inbox/* /memory/logs/*' 2>/dev/null || true
+  log "Memory cleared"
+fi
+
 # ── Fire test webhook ─────────────────────────────────────────────────────────
 
 PAYLOAD='{"event":"issue.opened","title":"Smoke test: write a hello.txt containing the word hello — keep it trivial"}'
