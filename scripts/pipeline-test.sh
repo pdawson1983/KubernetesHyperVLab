@@ -60,7 +60,6 @@ cleanup_and_restore() {
   log "Restoring chart to defaults..."
   helm upgrade claude-agents "$CHART_DIR" -n "$NAMESPACE" \
     --set global.mockMode=false \
-    --set global.maxTurns=10 \
     --set global.model=claude-sonnet-4-20250514 \
     --timeout 60s --wait 2>&1 | grep -E "^Release|upgraded|Error" || true
 }
@@ -111,12 +110,11 @@ case "$MODE" in
     pass "Chart updated — AGENT_MOCK=true on all agents"
     ;;
   haiku)
-    log "Switching to Haiku model, max-turns 5 (minimal token cost)..."
+    log "Switching to Haiku model (minimal token cost)..."
     helm upgrade claude-agents "$CHART_DIR" -n "$NAMESPACE" \
       --set global.model=claude-haiku-4-5-20251001 \
-      --set global.maxTurns=5 \
       --timeout 60s --wait 2>&1 | grep -E "^Release|upgraded|Error" || true
-    pass "Chart updated — Haiku model, 5 max turns"
+    pass "Chart updated — Haiku model"
     ;;
 esac
 
