@@ -14,7 +14,7 @@ global:
   #   --from-file=.credentials.json=$HOME/.claude/.credentials.json \
   #   -n claude-agents
   claudeCredentials:
-    enabled: false
+    enabled: true
     secretName: claude-credentials
   # mockMode: skip Claude invocation entirely; agents write fixture files and
   # chain normally. Zero token cost — tests infrastructure only.

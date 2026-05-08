@@ -98,6 +98,11 @@ curl -sf http://webhook.k8s.local/healthz &>/dev/null \
 
 pass "Pre-flight"
 
+# Snapshot existing pods NOW — before the helm upgrade — so the upgrade duration
+# cannot narrow the gap between snapshot and first new pod creation.
+snapshot_existing_pods
+log "Pre-existing pods snapshotted"
+
 # ── Apply test mode settings ──────────────────────────────────────────────────
 
 log "Mode: $MODE"
@@ -111,12 +116,12 @@ case "$MODE" in
     pass "Chart updated — AGENT_MOCK=true on all agents"
     ;;
   haiku)
-    log "Switching to Haiku model, max-turns 3 (minimal token cost)..."
+    log "Switching to Haiku model, max-turns 5 (minimal token cost)..."
     helm upgrade claude-agents "$CHART_DIR" -n "$NAMESPACE" \
       --set global.model=claude-haiku-4-5-20251001 \
-      --set global.maxTurns=3 \
+      --set global.maxTurns=5 \
       --timeout 60s --wait 2>&1 | grep -E "^Release|upgraded|Error" || true
-    pass "Chart updated — Haiku model, 3 max turns"
+    pass "Chart updated — Haiku model, 5 max turns"
     ;;
 esac
 
@@ -126,11 +131,6 @@ PAYLOAD='{"event":"issue.opened","title":"Smoke test: write a hello.txt containi
 SECRET=$(kubectl get secret webhook-secret -n "$NAMESPACE" \
   -o jsonpath='{.data.WEBHOOK_SECRET}' | base64 -d)
 SIG="sha256=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | cut -d' ' -f2)"
-
-# Snapshot pre-existing pods before the webhook so wait_for_agent can
-# identify new pods unambiguously (no timestamp race conditions).
-snapshot_existing_pods
-log "Pre-existing pods snapshotted"
 
 log "Firing test webhook..."
 HTTP=$(curl -s -o /tmp/pipeline-test-response.txt -w "%{http_code}" \
