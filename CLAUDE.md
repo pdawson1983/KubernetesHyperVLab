@@ -87,8 +87,9 @@ KubernetesHyperVLab/
 
 **Release:** `claude-agents` in namespace `claude-agents`
 **Chart version:** 0.5.0
-**Revision:** 25
+**Revision:** 40
 **Image tag:** `20260508-023415` (pinned — update in values.yaml on each push)
+**Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
 ### What's Running
 
@@ -224,13 +225,16 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Pipeline smoke test script (scripts/pipeline-test.sh — mock + haiku modes)
 - [x] Switched to versioned image tags + IfNotPresent pull policy (eliminates Docker Hub rate limit risk)
 - [x] Fixed agent pod false-Error on NFS trigger file permission denied (cleanup now non-fatal)
+- [x] Switched cluster to Claude Max credentials (claude-credentials secret, enabled in values.yaml)
+- [x] pipeline-test.sh --mock passing 12/12 (zero tokens, full 5-agent chain validated)
+- [x] pipeline-test.sh --haiku passing 6/7 (architect→coder→tester→reviewer chains with real Claude; tester timeout known issue)
 
 ---
 
 ## What's Next
 
-- [ ] Run pipeline-test.sh --mock to establish clean baseline after refactor
-- [ ] Run pipeline-test.sh --haiku to validate real agent behaviour post ADR-006
+- [ ] Task-scoped memory namespacing: /memory/tasks/<task-id>/ per run, support concurrent tasks and multiple repos (next session)
+- [ ] Fix haiku test tester timeout (agent AGENT_TIMEOUT=300s insufficient for Haiku writing tests)
 - [ ] Expand control plane LVM volume (same 10GB gap as workers — see knowledge base)
 - [ ] Build web UI for task submission (MD upload + guided form)
 - [ ] Add securityContext (runAsUser: 1001) to agent CronJob templates
@@ -275,6 +279,12 @@ See ADR-004 in the knowledge base.
 **Worker LVM volumes** — Ubuntu installer left workers with 10GB LV on 20GB disks.
 Expanded online with `lvextend + resize2fs` (no downtime). Control plane likely
 has the same gap — expand proactively before it causes issues.
+
+**Flat /memory/ namespace — no task isolation** — all pipeline runs share the same
+`/memory/` directories. Accumulated content from previous runs causes agents (especially
+reviewer) to read large volumes of old data, exhausting max-turns. Concurrent tasks
+would corrupt each other's queues. Fix planned for next session: task-scoped
+subdirectories `/memory/tasks/<task-id>/`. The haiku test clears memory as a workaround.
 
 **Podman + Docker Hub manifest deduplication on WSL2** — `podman build --no-cache`
 produces a new local image ID but the pushed manifest config hash may match a prior

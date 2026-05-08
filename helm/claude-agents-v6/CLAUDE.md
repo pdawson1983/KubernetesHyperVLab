@@ -1,7 +1,8 @@
 # Helm Chart: claude-agents v6 (Active)
 
 **Version:** 0.5.0 | **Release name:** `claude-agents` | **Namespace:** `claude-agents`
-**Current revision:** 25 | **Image tag:** `20260508-023415`
+**Current revision:** 40 | **Image tag:** `20260508-023415`
+**Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
 This is the live chart. Do not edit files in `helm/archive/`.
 
@@ -55,8 +56,8 @@ To change event routing, edit `webhook/dispatcher.yaml` (the Python dict).
 | `global.model` | Claude model for all agents |
 | `global.maxTurns` | Max agentic turns per invocation (default 10; set to 3 for Haiku test) |
 | `global.mockMode` | `true` = agents write fixtures instead of calling Claude (zero token test) |
-| `global.claudeCredentials.enabled` | `true` = use Claude.ai Max credentials instead of API key |
-| `global.claudeCredentials.secretName` | Name of the K8s secret holding `.credentials.json` |
+| `global.claudeCredentials.enabled` | `true` = use Claude.ai Max credentials (currently active); `false` = use API key |
+| `global.claudeCredentials.secretName` | Name of the K8s secret holding `.credentials.json` (default: `claude-credentials`) |
 | `global.resources` | Default CPU/memory for all agent pods |
 | `agents.<role>.maxTokens` | Per-role token limit |
 | `agents.<role>.timeout` | Per-role timeout in seconds |
@@ -86,15 +87,17 @@ helm upgrade claude-agents . -n claude-agents --set global.model=claude-haiku-4-
 ## Required Secrets (not managed by Helm)
 
 ```bash
-# Option A: Anthropic API key
+# Option A: Anthropic API key (not currently used — API key disabled)
 kubectl create secret generic anthropic-api-key \
   --from-literal=ANTHROPIC_API_KEY=sk-ant-xxx -n claude-agents
 
-# Option B: Claude.ai Max credentials (run 'claude auth login' first)
+# Option B: Claude.ai Max credentials — CURRENTLY ACTIVE
+# Run 'claude auth login' in WSL first to populate ~/.claude/.credentials.json
 kubectl create secret generic claude-credentials \
   --from-file=.credentials.json=$HOME/.claude/.credentials.json \
   -n claude-agents
-# Then set global.claudeCredentials.enabled=true in values.yaml
+# global.claudeCredentials.enabled is already true in values.yaml
+# NOTE: credentials expire — re-run 'claude auth login' and recreate secret periodically
 
 # Always required:
 kubectl create secret generic webhook-secret \

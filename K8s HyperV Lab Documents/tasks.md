@@ -8,8 +8,7 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 
 | Task | Notes |
 |------|-------|
-| Run pipeline-test.sh --mock to establish clean baseline | Script ran; revealed NFS permission and Docker Hub image bugs — both fixed. Re-run needed to confirm clean pass. |
-| Run pipeline-test.sh --haiku to validate real agent behaviour | Validates ADR-006 refactor with minimal token spend |
+| Fix haiku test tester timeout | Tester hits AGENT_TIMEOUT=300s when using Haiku; needs per-agent timeout tuning or simpler test task |
 
 ---
 
@@ -17,7 +16,9 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 
 | Task | Priority | Notes |
 |------|----------|-------|
+| Task-scoped memory namespacing | High | /memory/tasks/<task-id>/ per run; enables concurrent tasks and multi-repo support. Next session. |
 | Expand control plane LVM volume | High | Same 10GB gap as workers; expand before it causes issues |
+| Add securityContext (runAsUser: 1001) to dispatcher pod | High | Queue-watcher writes trigger files as root; agents (UID 1001) can't delete them. Fix: add fsGroup/runAsUser to dispatcher securityContext |
 | Validate local registry after containerd downgrade to 1.7.24 | High | `curl http://192.168.100.11:30500/v2/_catalog` — if it works, switch image source from Docker Hub |
 | Add securityContext (runAsUser: 1001) to agent CronJob templates | Medium | agent user UID 1001 is set in Dockerfile but not enforced at K8s level |
 | Validate WSL route persistence scheduled task | Medium | Route `192.168.100.0/24 via 172.24.240.1` drops on WSL restart; task exists but unverified |
@@ -56,3 +57,8 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 | Create /session-doc skill | 2026-05-07 | Installed at ~/.claude/commands/session-doc.md; updates all lab docs at end of session |
 | Fix pod false-Error on NFS trigger file cleanup | 2026-05-08 | rm -f on queue/active/ files failed with Permission denied (UID mismatch); made cleanup non-fatal in entrypoint.sh |
 | Fix Docker Hub :latest serving stale image to nodes | 2026-05-08 | Switched to versioned tags (YYYYMMDD-HHMMSS) + IfNotPresent pullPolicy; values.yaml pinned to 20260508-023415 |
+| Switch cluster auth to Claude Max credentials | 2026-05-08 | Disabled API key; created claude-credentials secret from ~/.claude/.credentials.json; enabled in values.yaml |
+| Fix credentials defaultMode 0400 → 0444 | 2026-05-08 | Agent UID 1001 couldn't read secret mounted with owner-only mode; changed in _helpers.tpl |
+| Fix pipeline-test.sh pod detection (multiple iterations) | 2026-05-08 | Replaced timestamp filter with pre-existing pod snapshot + python3 tempfile filter; jq not installed in WSL |
+| pipeline-test.sh --mock passing 12/12 | 2026-05-08 | Full 5-agent chain validated at zero token cost in ~28 seconds |
+| pipeline-test.sh --haiku passing 6/7 | 2026-05-08 | Architect→coder→tester→reviewer chain confirmed with real Claude Max credentials; tester timeout pending |
