@@ -8,7 +8,8 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 
 | Task | Notes |
 |------|-------|
-| Verify full pipeline run: Architect → Coder → Tester → Reviewer → Ops | Architect → Coder chain confirmed (2026-05-07); coder running, tester/reviewer/ops not yet validated |
+| Run pipeline-test.sh --mock to establish clean baseline | New smoke test script exists; not yet run post-refactor |
+| Run pipeline-test.sh --haiku to validate real agent behaviour | Validates ADR-006 refactor with minimal token spend |
 
 ---
 
@@ -16,7 +17,7 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 
 | Task | Priority | Notes |
 |------|----------|-------|
-| Validate tester → reviewer → ops chain | High | Coder now running; watch for tester.json to appear and chain to continue |
+| Expand control plane LVM volume | High | Same 10GB gap as workers; expand before it causes issues |
 | Validate local registry after containerd downgrade to 1.7.24 | High | `curl http://192.168.100.11:30500/v2/_catalog` — if it works, switch image source from Docker Hub |
 | Add securityContext (runAsUser: 1001) to agent CronJob templates | Medium | agent user UID 1001 is set in Dockerfile but not enforced at K8s level |
 | Validate WSL route persistence scheduled task | Medium | Route `192.168.100.0/24 via 172.24.240.1` drops on WSL restart; task exists but unverified |
@@ -45,5 +46,11 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 | Architect agent running end to end | — | Claude Code called, spec written, coder.json triggered |
 | Downgrade containerd 2.2.1 → 1.7.24 | — | Fixed insecure registry hosts.toml bug |
 | Queue-watcher sidecar chaining pipeline | 2026-05-07 | Confirmed: architect.complete → coder job spawned and running |
-| Fix trigger file race condition (queue-watcher archives before agent starts) | 2026-05-07 | Queue-watcher now moves trigger to queue/active/ before dispatching; entrypoint.sh reads from there as fallback |
-| Expand worker LVM volumes (10GB → 17GB) | 2026-05-07 | Both workers were provisioned with 20GB disks but 10GB LV; expanded online with lvextend + resize2fs |
+| Fix trigger file race condition | 2026-05-07 | Queue-watcher moves trigger to queue/active/ before dispatching; entrypoint.sh reads from there as fallback |
+| Expand worker LVM volumes (10GB → 17GB) | 2026-05-07 | Both workers expanded online with lvextend + resize2fs |
+| Verify full pipeline run: Architect → Coder → Tester → Reviewer → Ops | 2026-05-07 | All 5 agents completed; deployment.yaml produced by Ops for hello-world-endpoint |
+| Validate tester → reviewer → ops chain | 2026-05-07 | Confirmed: full chain ran; reviews and deployment artifacts written to /memory/ |
+| Add Claude.ai Max credentials support | 2026-05-07 | Credentials secret mounted at /home/agent/.claude-creds; entrypoint copies to ~/.claude/ at startup |
+| Decouple agent behaviour from Helm (ADR-006) | 2026-05-07 | Per-role ConfigMap instructions removed; general instructions baked into image as /agent/CLAUDE.md |
+| Create pipeline smoke test script | 2026-05-07 | scripts/pipeline-test.sh with --mock (zero tokens) and --haiku (minimal tokens) modes |
+| Create /session-doc skill | 2026-05-07 | Installed at ~/.claude/commands/session-doc.md; updates all lab docs at end of session |

@@ -42,13 +42,21 @@ claude-agents/role: {{ .agent }}
 Standard environment variables injected into every agent container
 */}}
 {{- define "claude-agents.agentEnv" -}}
+{{- if not .Values.global.claudeCredentials.enabled }}
 - name: ANTHROPIC_API_KEY
   valueFrom:
     secretKeyRef:
       name: {{ .Values.global.apiKeySecret }}
       key: ANTHROPIC_API_KEY
+{{- end }}
+- name: HOME
+  value: /home/agent
 - name: CLAUDE_MODEL
   value: {{ .Values.global.model | quote }}
+- name: AGENT_MAX_TURNS
+  value: {{ .Values.global.maxTurns | quote }}
+- name: AGENT_MOCK
+  value: {{ .Values.global.mockMode | quote }}
 - name: MEMORY_PATH
   value: {{ .Values.memory.mountPath | quote }}
 - name: AGENT_ROLE
@@ -63,13 +71,11 @@ Standard volume mounts for every agent container
 {{- define "claude-agents.agentVolumeMounts" -}}
 - name: agent-memory
   mountPath: {{ .Values.memory.mountPath }}
-- name: agent-config
-  mountPath: /etc/agent
+{{- if .Values.global.claudeCredentials.enabled }}
+- name: claude-credentials
+  mountPath: /home/agent/.claude-creds
   readOnly: true
-- name: project-context
-  mountPath: /memory/CLAUDE.md
-  subPath: CLAUDE.md
-  readOnly: true
+{{- end }}
 {{- end }}
 
 {{/*
@@ -80,12 +86,12 @@ Usage: include "claude-agents.agentVolumes" (dict "agent" "architect" "root" .)
 - name: agent-memory
   persistentVolumeClaim:
     claimName: {{ include "claude-agents.fullname" .root }}-memory
-- name: agent-config
-  configMap:
-    name: {{ include "claude-agents.fullname" .root }}-{{ .agent }}-config
-- name: project-context
-  configMap:
-    name: {{ include "claude-agents.fullname" .root }}-project-context
+{{- if .root.Values.global.claudeCredentials.enabled }}
+- name: claude-credentials
+  secret:
+    secretName: {{ .root.Values.global.claudeCredentials.secretName }}
+    defaultMode: 0400
+{{- end }}
 {{- end }}
 
 {{/*

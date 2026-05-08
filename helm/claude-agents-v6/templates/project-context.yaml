@@ -1,19 +1,16 @@
-{{- if .Values.projectContext.enabled }}
 # =============================================================================
-# Project Context ConfigMap
-# This is the CLAUDE.md equivalent — mounted into every agent at
-# /memory/CLAUDE.md so all agents share the same project understanding.
-# Update .Values.projectContext.content to reflect your actual project.
+# Project Context ConfigMap — removed
+#
+# Previously injected /memory/CLAUDE.md from values.yaml via ConfigMap mount.
+# This was removed for the same reason as per-role configmaps: the orchestration
+# layer should not control what agents know about a project.
+#
+# /memory/CLAUDE.md is now the responsibility of:
+#   - The architect agent, which may write it at the start of a task to share
+#     context with downstream agents
+#   - The user, who may pre-populate it when submitting a task
+#
+# The base /agent/CLAUDE.md (baked into the image) covers the pipeline's own
+# memory layout, chaining rules, and role descriptions — things that are always
+# true regardless of which project is being built.
 # =============================================================================
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "claude-agents.fullname" . }}-project-context
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "claude-agents.labels" . | nindent 4 }}
-    app.kubernetes.io/component: config
-data:
-  CLAUDE.md: |
-    {{- .Values.projectContext.content | nindent 4 }}
-{{- end }}

@@ -24,7 +24,8 @@ VMs/
 # Claude Code
 # =============================================================================
 .claude/
-CLAUDE.md
+# CLAUDE.md files are project documentation — tracked intentionally.
+# The .claude/ directory (session state, settings) is ignored.
 
 # =============================================================================
 # Helm packaged charts (build artifacts)

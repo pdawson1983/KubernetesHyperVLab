@@ -8,6 +8,21 @@
 global:
   namespace: claude-agents
   apiKeySecret: anthropic-api-key
+  # Set enabled: true and create the secret with your ~/.claude/.credentials.json
+  # to use a Claude.ai Max subscription instead of a raw API key.
+  # kubectl create secret generic claude-credentials \
+  #   --from-file=.credentials.json=$HOME/.claude/.credentials.json \
+  #   -n claude-agents
+  claudeCredentials:
+    enabled: false
+    secretName: claude-credentials
+  # mockMode: skip Claude invocation entirely; agents write fixture files and
+  # chain normally. Zero token cost — tests infrastructure only.
+  # Enable via: helm upgrade ... --set global.mockMode=true
+  mockMode: false
+  # maxTurns: maximum agentic turns per Claude invocation. Override for testing:
+  # helm upgrade ... --set global.maxTurns=3 --set global.model=claude-haiku-4-5-20251001
+  maxTurns: 10
   image:
     # After pushing: podman push 192.168.100.11:30500/claude-agent:latest --tls-verify=false
     repository: docker.io/pdawson1983/claude-agent
@@ -63,24 +78,6 @@ agents:
       - "issue.labeled"
     maxTokens: 4096
     timeout: 300
-    instructions: |
-      ## Role: Architect Agent
-
-      You are a software architect. Your job is to analyze requirements and
-      produce clear, actionable specifications — never implementation code.
-
-      ## Responsibilities
-      - Read the incoming issue or request from /memory/inbox/
-      - Produce a detailed spec document in /memory/specs/
-      - Define component boundaries and interfaces
-      - Identify risks and open questions
-      - Hand off to the Coder agent by writing /memory/queue/coder.json
-
-      ## Rules
-      - Never write implementation code
-      - Always produce a spec before any plan
-      - If requirements are unclear, list your assumptions explicitly
-      - Keep specs under 500 lines
 
   coder:
     enabled: true
@@ -88,22 +85,6 @@ agents:
       - "architect.complete"
     maxTokens: 8192
     timeout: 600
-    instructions: |
-      ## Role: Coder Agent
-
-      You implement code based on the Architect's spec.
-
-      ## Responsibilities
-      - Read the spec from /memory/specs/
-      - Implement the feature or fix described
-      - Follow conventions defined in /memory/CLAUDE.md
-      - Write code to /memory/workspace/
-      - Signal the Tester agent by writing /memory/queue/tester.json
-
-      ## Rules
-      - Never skip error handling
-      - Always follow the project's existing patterns
-      - Never modify more than 10 files without writing a plan first
 
   reviewer:
     enabled: true
@@ -113,22 +94,6 @@ agents:
       - "tester.complete"
     maxTokens: 4096
     timeout: 300
-    instructions: |
-      ## Role: Reviewer Agent
-
-      You perform security-first code review on every PR.
-
-      ## Responsibilities
-      - Read code from /memory/workspace/
-      - Check for security vulnerabilities
-      - Verify test coverage is adequate
-      - Write review output to /memory/reviews/
-      - Post review summary to /memory/queue/ops.json
-
-      ## Rules
-      - Flag ANY hardcoded secrets as a blocking issue
-      - A PR with no tests is always a blocking issue
-      - Be constructive — explain why, not just what
 
   tester:
     enabled: true
@@ -136,22 +101,6 @@ agents:
       - "coder.complete"
     maxTokens: 4096
     timeout: 300
-    instructions: |
-      ## Role: Tester Agent
-
-      You write comprehensive tests for all new code.
-
-      ## Responsibilities
-      - Read implementation from /memory/workspace/
-      - Write unit and integration tests
-      - Ensure edge cases and error paths are covered
-      - Write tests to /memory/workspace/tests/
-      - Signal Reviewer by writing /memory/queue/reviewer.json
-
-      ## Rules
-      - Minimum 80% code coverage on new code
-      - Always test the happy path AND error paths
-      - Tests must be deterministic
 
   ops:
     enabled: true
@@ -160,47 +109,6 @@ agents:
       - "deployment.requested"
     maxTokens: 2048
     timeout: 600
-    instructions: |
-      ## Role: Ops Agent
-
-      You handle deployment, infrastructure, and CI/CD.
-
-      ## Responsibilities
-      - Read the deployment plan from /memory/queue/ops.json
-      - Validate all checks passed
-      - Execute deployment steps
-      - Write deployment summary to /memory/deployments/
-
-      ## Rules
-      - Never deploy if any check has failed
-      - Always write a deployment log entry
-      - Roll back immediately if health checks fail
-
-# ---------------------------------------------------------------------------
-# Project context — mounted as /memory/CLAUDE.md in every agent
-# ---------------------------------------------------------------------------
-projectContext:
-  enabled: true
-  content: |
-    # Project Context
-
-    ## Stack
-    - Runtime: Kubernetes (local Hyper-V lab)
-    - Agents: Architect, Coder, Reviewer, Tester, Ops
-    - Memory: Shared PVC at /memory
-
-    ## Memory Layout
-    - /memory/inbox/       — incoming requests
-    - /memory/specs/       — architect output
-    - /memory/workspace/   — coder output and tests
-    - /memory/reviews/     — reviewer output
-    - /memory/queue/       — inter-agent signals
-    - /memory/deployments/ — ops deployment logs
-
-    ## Conventions
-    - Inter-agent communication via JSON files in /memory/queue/
-    - Logs written to stdout for kubectl logs visibility
-    - Never write secrets to /memory/
 
 # ---------------------------------------------------------------------------
 # RBAC

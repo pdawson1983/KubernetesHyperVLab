@@ -1,111 +1,22 @@
 # =============================================================================
-# Agent ConfigMaps
-# Each agent gets its own ConfigMap containing its CLAUDE.md instructions.
-# These are mounted at /etc/agent/CLAUDE.md inside each agent container.
-# Agents read this at startup to understand their role and rules.
+# Agent ConfigMaps — removed
+#
+# Per-role CLAUDE.md instructions and config.json were previously injected
+# here as ConfigMaps mounted at /etc/agent/. This pattern was removed because:
+#
+#   1. Role restrictions baked into Helm config prevent agents from adapting
+#      to the conventions of the projects they are building.
+#   2. config.json was redundant — role, timeout, and maxTokens are already
+#      available as env vars (AGENT_ROLE, AGENT_TIMEOUT, MAX_TOKENS).
+#   3. The orchestration layer should not govern agent behaviour. That
+#      responsibility belongs to the project being built (workspace CLAUDE.md)
+#      and the base image instructions (/agent/CLAUDE.md).
+#
+# What governs agent behaviour now:
+#   /agent/CLAUDE.md              — baked into image; general pipeline rules,
+#                                   memory layout, role descriptions, security
+#   /memory/CLAUDE.md             — written by architect or user per-task;
+#                                   included in prompt if present
+#   /memory/workspace/<proj>/CLAUDE.md — project conventions; read automatically
+#                                        by Claude Code when navigating there
 # =============================================================================
-
-{{- if .Values.agents.architect.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "claude-agents.fullname" . }}-architect-config
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "claude-agents.agentLabels" (dict "agent" "architect" "root" .) | nindent 4 }}
-data:
-  CLAUDE.md: |
-    {{- .Values.agents.architect.instructions | nindent 4 }}
-  config.json: |
-    {
-      "role": "architect",
-      "maxTokens": {{ .Values.agents.architect.maxTokens }},
-      "triggers": {{ .Values.agents.architect.triggers | toJson }},
-      "timeout": {{ .Values.agents.architect.timeout }}
-    }
-{{- end }}
-
-{{- if .Values.agents.coder.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "claude-agents.fullname" . }}-coder-config
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "claude-agents.agentLabels" (dict "agent" "coder" "root" .) | nindent 4 }}
-data:
-  CLAUDE.md: |
-    {{- .Values.agents.coder.instructions | nindent 4 }}
-  config.json: |
-    {
-      "role": "coder",
-      "maxTokens": {{ .Values.agents.coder.maxTokens }},
-      "triggers": {{ .Values.agents.coder.triggers | toJson }},
-      "timeout": {{ .Values.agents.coder.timeout }}
-    }
-{{- end }}
-
-{{- if .Values.agents.reviewer.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "claude-agents.fullname" . }}-reviewer-config
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "claude-agents.agentLabels" (dict "agent" "reviewer" "root" .) | nindent 4 }}
-data:
-  CLAUDE.md: |
-    {{- .Values.agents.reviewer.instructions | nindent 4 }}
-  config.json: |
-    {
-      "role": "reviewer",
-      "maxTokens": {{ .Values.agents.reviewer.maxTokens }},
-      "triggers": {{ .Values.agents.reviewer.triggers | toJson }},
-      "timeout": {{ .Values.agents.reviewer.timeout }}
-    }
-{{- end }}
-
-{{- if .Values.agents.tester.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "claude-agents.fullname" . }}-tester-config
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "claude-agents.agentLabels" (dict "agent" "tester" "root" .) | nindent 4 }}
-data:
-  CLAUDE.md: |
-    {{- .Values.agents.tester.instructions | nindent 4 }}
-  config.json: |
-    {
-      "role": "tester",
-      "maxTokens": {{ .Values.agents.tester.maxTokens }},
-      "triggers": {{ .Values.agents.tester.triggers | toJson }},
-      "timeout": {{ .Values.agents.tester.timeout }}
-    }
-{{- end }}
-
-{{- if .Values.agents.ops.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "claude-agents.fullname" . }}-ops-config
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "claude-agents.agentLabels" (dict "agent" "ops" "root" .) | nindent 4 }}
-data:
-  CLAUDE.md: |
-    {{- .Values.agents.ops.instructions | nindent 4 }}
-  config.json: |
-    {
-      "role": "ops",
-      "maxTokens": {{ .Values.agents.ops.maxTokens }},
-      "triggers": {{ .Values.agents.ops.triggers | toJson }},
-      "timeout": {{ .Values.agents.ops.timeout }}
-    }
-{{- end }}

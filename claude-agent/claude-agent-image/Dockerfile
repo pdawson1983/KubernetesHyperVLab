@@ -32,9 +32,10 @@ RUN mkdir -p /agent /memory/inbox /memory/specs /memory/queue \
              /memory/logs /etc/agent \
     && chown -R agent:agent /agent /memory
 
-# Copy scripts
+# Copy scripts and base agent instructions
 COPY --chown=agent:agent entrypoint.sh /agent/entrypoint.sh
 COPY --chown=agent:agent queue-watcher.sh /agent/queue-watcher.sh
+COPY --chown=agent:agent agent-base.md /agent/CLAUDE.md
 RUN chmod +x /agent/entrypoint.sh /agent/queue-watcher.sh
 
 # Switch to non-root user
