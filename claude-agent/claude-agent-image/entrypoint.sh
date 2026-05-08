@@ -217,8 +217,9 @@ rm -f "$PROMPT_FILE"
 if [ $EXIT_CODE -eq 0 ]; then
   log "Completed successfully"
   if [ "$AGENT_ROLE" != "architect" ] && [ -f "$PAYLOAD_FILE" ]; then
-    rm -f "$PAYLOAD_FILE"
-    log "Consumed trigger file: $PAYLOAD_FILE"
+    rm -f "$PAYLOAD_FILE" 2>/dev/null \
+      && log "Consumed trigger file: $PAYLOAD_FILE" \
+      || log "Warning: could not remove trigger file $PAYLOAD_FILE (NFS ownership — non-fatal)"
   fi
 elif [ $EXIT_CODE -eq 124 ]; then
   die "Timed out after ${AGENT_TIMEOUT}s"

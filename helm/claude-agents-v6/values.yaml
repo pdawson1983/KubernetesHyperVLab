@@ -26,8 +26,8 @@ global:
   image:
     # After pushing: podman push 192.168.100.11:30500/claude-agent:latest --tls-verify=false
     repository: docker.io/pdawson1983/claude-agent
-    tag: latest
-    pullPolicy: Always
+    tag: "20260508-023415"
+    pullPolicy: IfNotPresent
   model: claude-sonnet-4-20250514
   resources:
     requests:

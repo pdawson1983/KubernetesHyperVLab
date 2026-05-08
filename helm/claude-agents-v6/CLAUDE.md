@@ -1,7 +1,7 @@
 # Helm Chart: claude-agents v6 (Active)
 
 **Version:** 0.5.0 | **Release name:** `claude-agents` | **Namespace:** `claude-agents`
-**Current revision:** 22
+**Current revision:** 25 | **Image tag:** `20260508-023415`
 
 This is the live chart. Do not edit files in `helm/archive/`.
 
@@ -51,7 +51,7 @@ To change event routing, edit `webhook/dispatcher.yaml` (the Python dict).
 
 | Section | What to change here |
 |---------|---------------------|
-| `global.image` | Image repo/tag after pushing new claude-agent build |
+| `global.image.tag` | Versioned tag after each push (format: `YYYYMMDD-HHMMSS`); never use `latest` |
 | `global.model` | Claude model for all agents |
 | `global.maxTurns` | Max agentic turns per invocation (default 10; set to 3 for Haiku test) |
 | `global.mockMode` | `true` = agents write fixtures instead of calling Claude (zero token test) |

@@ -8,7 +8,7 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 
 | Task | Notes |
 |------|-------|
-| Run pipeline-test.sh --mock to establish clean baseline | New smoke test script exists; not yet run post-refactor |
+| Run pipeline-test.sh --mock to establish clean baseline | Script ran; revealed NFS permission and Docker Hub image bugs — both fixed. Re-run needed to confirm clean pass. |
 | Run pipeline-test.sh --haiku to validate real agent behaviour | Validates ADR-006 refactor with minimal token spend |
 
 ---
@@ -54,3 +54,5 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 | Decouple agent behaviour from Helm (ADR-006) | 2026-05-07 | Per-role ConfigMap instructions removed; general instructions baked into image as /agent/CLAUDE.md |
 | Create pipeline smoke test script | 2026-05-07 | scripts/pipeline-test.sh with --mock (zero tokens) and --haiku (minimal tokens) modes |
 | Create /session-doc skill | 2026-05-07 | Installed at ~/.claude/commands/session-doc.md; updates all lab docs at end of session |
+| Fix pod false-Error on NFS trigger file cleanup | 2026-05-08 | rm -f on queue/active/ files failed with Permission denied (UID mismatch); made cleanup non-fatal in entrypoint.sh |
+| Fix Docker Hub :latest serving stale image to nodes | 2026-05-08 | Switched to versioned tags (YYYYMMDD-HHMMSS) + IfNotPresent pullPolicy; values.yaml pinned to 20260508-023415 |

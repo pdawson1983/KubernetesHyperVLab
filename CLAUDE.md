@@ -87,7 +87,8 @@ KubernetesHyperVLab/
 
 **Release:** `claude-agents` in namespace `claude-agents`
 **Chart version:** 0.5.0
-**Revision:** 22
+**Revision:** 25
+**Image tag:** `20260508-023415` (pinned — update in values.yaml on each push)
 
 ### What's Running
 
@@ -221,6 +222,8 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Claude.ai Max credentials support (mount secret instead of API key — see helm values)
 - [x] Agent behaviour decoupled from Helm (general instructions baked into image via agent-base.md — see ADR-006)
 - [x] Pipeline smoke test script (scripts/pipeline-test.sh — mock + haiku modes)
+- [x] Switched to versioned image tags + IfNotPresent pull policy (eliminates Docker Hub rate limit risk)
+- [x] Fixed agent pod false-Error on NFS trigger file permission denied (cleanup now non-fatal)
 
 ---
 
@@ -273,11 +276,20 @@ See ADR-004 in the knowledge base.
 Expanded online with `lvextend + resize2fs` (no downtime). Control plane likely
 has the same gap — expand proactively before it causes issues.
 
-**Podman build caching on WSL2** — podman may return a cached image even after file
-edits due to how WSL2 exposes the Windows filesystem to the container runtime. The
-pushed manifest config hash may appear identical to a prior build. Always verify with
-`podman run --rm --entrypoint grep claude-agent:latest -c "expected-string" /agent/entrypoint.sh`.
-Use `podman build --no-cache` when in doubt.
+**Podman + Docker Hub manifest deduplication on WSL2** — `podman build --no-cache`
+produces a new local image ID but the pushed manifest config hash may match a prior
+push, meaning Docker Hub serves the old image to nodes even though `:latest` was
+re-pushed. Root cause: layer content hashes match the prior build. Fix: always push
+with a unique version tag (e.g. `YYYYMMDD-HHMMSS`) and pin `values.yaml` to that
+tag. Use `pullPolicy: IfNotPresent` so nodes cache after first pull. See ADR-007.
+Verify image content before pushing:
+`podman run --rm --entrypoint grep claude-agent:latest -c "AGENT_MOCK" /agent/entrypoint.sh`
+
+**NFS trigger file ownership — pod false-Error (fixed)** — the queue-watcher sidecar
+writes trigger files to `/memory/queue/active/` as a different UID than the agent
+user (1001). `rm -f` on cleanup failed with Permission denied, causing `set -euo pipefail`
+to exit the pod non-zero even though all work completed successfully. Fixed in
+entrypoint.sh: cleanup failure is now logged as a warning and does not fail the pod.
 
 **Per-role Helm ConfigMap instructions removed (ADR-006)** — agent behaviour is no
 longer controlled by Helm. General instructions are in `agent-base.md` (baked into
@@ -314,14 +326,21 @@ kubectl exec -n claude-agents \
 # Upgrade chart
 helm upgrade claude-agents . -n claude-agents
 
-# Build and push image (use --no-cache on WSL2 to avoid stale layer cache)
+# Build and push image — full versioned tag workflow (see ADR-007)
 cd KubernetesHyperVLab/claude-agent/claude-agent-image
-podman build --no-cache -t claude-agent:latest .
-podman tag claude-agent:latest docker.io/pdawson1983/claude-agent:latest
-podman push docker.io/pdawson1983/claude-agent:latest
+VERSION_TAG="$(date -u +%Y%m%d-%H%M%S)"
+podman build --no-cache --build-arg BUILD_DATE="${VERSION_TAG}" -t claude-agent:latest .
 
-# Verify image has expected changes before pushing
+# Verify the change is in the image before pushing
 podman run --rm --entrypoint grep claude-agent:latest -c "AGENT_MOCK" /agent/entrypoint.sh
+
+# Push with versioned tag
+podman tag claude-agent:latest docker.io/pdawson1983/claude-agent:${VERSION_TAG}
+podman push docker.io/pdawson1983/claude-agent:${VERSION_TAG}
+
+# Update values.yaml image.tag to $VERSION_TAG, then upgrade
+cd KubernetesHyperVLab/helm/claude-agents-v6
+helm upgrade claude-agents . -n claude-agents
 
 # Pipeline smoke test (zero tokens)
 cd KubernetesHyperVLab

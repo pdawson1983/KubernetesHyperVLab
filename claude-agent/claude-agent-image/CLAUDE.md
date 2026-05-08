@@ -19,18 +19,24 @@ instructions are baked into the image as `/agent/CLAUDE.md` (see ADR-006).
 
 ## Build and Push
 
-```bash
-# Always use --no-cache on WSL2 to avoid stale layer cache
-podman build --no-cache -t claude-agent:latest .
+Use versioned tags — never push to `:latest` alone (Docker Hub manifest deduplication
+causes nodes to silently run old images). See ADR-007.
 
-# Verify the image has expected content before pushing
+```bash
+VERSION_TAG="$(date -u +%Y%m%d-%H%M%S)"
+podman build --no-cache --build-arg BUILD_DATE="${VERSION_TAG}" -t claude-agent:latest .
+
+# Verify expected content is in the image before pushing
 podman run --rm --entrypoint grep claude-agent:latest -c "AGENT_MOCK" /agent/entrypoint.sh
 
-podman tag claude-agent:latest docker.io/pdawson1983/claude-agent:latest
-podman push docker.io/pdawson1983/claude-agent:latest
+podman tag claude-agent:latest docker.io/pdawson1983/claude-agent:${VERSION_TAG}
+podman push docker.io/pdawson1983/claude-agent:${VERSION_TAG}
+echo "Update values.yaml image.tag to: ${VERSION_TAG}"
 ```
 
-After pushing, new agent Jobs will pull the updated image (`pullPolicy: Always`).
+After pushing: update `global.image.tag` in `helm/claude-agents-v6/values.yaml` and
+run `helm upgrade claude-agents . -n claude-agents`. Nodes use `pullPolicy: IfNotPresent`
+and cache the image after first pull.
 
 ## Entrypoint Flow
 

@@ -5,6 +5,8 @@
 # =============================================================================
 
 FROM node:20-slim
+ARG BUILD_DATE=unknown
+LABEL build-date=$BUILD_DATE
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
