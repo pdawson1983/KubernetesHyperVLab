@@ -155,7 +155,18 @@ DEADLINE=$(($(date +%s) + TIMEOUT))
 
 wait_for_agent() {
   local role="$1"
+  local pre="${PRE_PODS[$role]:-}"
   log "Waiting for $role pod (deadline in $((DEADLINE - $(date +%s)))s)..."
+
+  # jq filter: exclude pre-existing pods, return newest remaining pod's phase.
+  # Splitting "" gives [""] so we filter out empty strings explicitly.
+  local jq_filter='
+    ($pre | if . == "" then [] else [split(" ")[] | select(. != "")] end) as $ex |
+    [.items[] | select(.metadata.name as $n | ($ex | any(. == $n)) | not)] |
+    if length > 0
+    then (sort_by(.metadata.creationTimestamp) | last | {phase: .status.phase, name: .metadata.name})
+    else {phase: "Pending", name: ""}
+    end'
 
   while true; do
     if [[ $(date +%s) -gt $DEADLINE ]]; then
@@ -167,20 +178,14 @@ wait_for_agent() {
       return 1
     fi
 
-    # Find NEW pods for this role — exclude anything in the pre-existing snapshot.
-    # This avoids timestamp race conditions when pods complete very fast (mock mode).
-    PHASE="Pending"
-    while IFS= read -r podname; do
-      [ -z "$podname" ] && continue
-      if is_new "$role" "$podname"; then
-        PHASE=$(kubectl get pod -n "$NAMESPACE" "$podname" \
-          -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
-        break
-      fi
-    done < <(kubectl get pods -n "$NAMESPACE" \
-      -l "claude-agents/role=$role" \
-      --sort-by=.metadata.creationTimestamp \
-      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+    local result
+    result=$(kubectl get pods -n "$NAMESPACE" -l "claude-agents/role=$role" \
+      -o json 2>/dev/null | \
+      jq -r --arg pre "$pre" "$jq_filter" 2>/dev/null || echo '{"phase":"Pending","name":""}')
+
+    local PHASE POD
+    PHASE=$(echo "$result" | jq -r '.phase' 2>/dev/null || echo "Pending")
+    POD=$(echo "$result"   | jq -r '.name'  2>/dev/null || echo "")
 
     case "$PHASE" in
       Succeeded)
@@ -189,9 +194,6 @@ wait_for_agent() {
         ;;
       Failed)
         fail "$role pod failed"
-        # Dump the pod logs for diagnosis
-        POD=$(kubectl get pods -n "$NAMESPACE" -l "claude-agents/role=$role" \
-          -o jsonpath='{.items[-1].metadata.name}' 2>/dev/null || echo "")
         if [ -n "$POD" ]; then
           echo "  --- $role pod logs (last 20 lines) ---"
           kubectl logs -n "$NAMESPACE" "$POD" --tail=20 2>/dev/null | sed 's/^/  /' || true
