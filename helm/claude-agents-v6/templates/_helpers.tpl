@@ -90,7 +90,7 @@ Usage: include "claude-agents.agentVolumes" (dict "agent" "architect" "root" .)
 - name: claude-credentials
   secret:
     secretName: {{ .root.Values.global.claudeCredentials.secretName }}
-    defaultMode: 0400
+    defaultMode: 0444
 {{- end }}
 {{- end }}
 

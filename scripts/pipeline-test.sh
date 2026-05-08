@@ -33,14 +33,9 @@ FAILED=0
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
-pass()  { echo "  PASS  $*"; PASSED=$((PASSED+1)); }
-fail()  { echo "  FAIL  $*"; FAILED=$((FAILED+1)); }
-die()   { echo "ERROR: $*" >&2; cleanup_and_restore; exit 1; }
-is_new() {
-  # is_new <role> <pod-name> — true if pod-name was not in the pre-existing snapshot
-  local pre="${PRE_PODS[$1]:-}"
-  [[ " $pre " != *" $2 "* ]]
-}
+pass() { echo "  PASS  $*"; PASSED=$((PASSED+1)); }
+fail() { echo "  FAIL  $*"; FAILED=$((FAILED+1)); }
+die()  { echo "ERROR: $*" >&2; cleanup_and_restore; exit 1; }
 
 # ── Args ─────────────────────────────────────────────────────────────────────
 
@@ -158,16 +153,6 @@ wait_for_agent() {
   local pre="${PRE_PODS[$role]:-}"
   log "Waiting for $role pod (deadline in $((DEADLINE - $(date +%s)))s)..."
 
-  # jq filter: exclude pre-existing pods, return newest remaining pod's phase.
-  # Splitting "" gives [""] so we filter out empty strings explicitly.
-  local jq_filter='
-    ($pre | if . == "" then [] else [split(" ")[] | select(. != "")] end) as $ex |
-    [.items[] | select(.metadata.name as $n | ($ex | any(. == $n)) | not)] |
-    if length > 0
-    then (sort_by(.metadata.creationTimestamp) | last | {phase: .status.phase, name: .metadata.name})
-    else {phase: "Pending", name: ""}
-    end'
-
   while true; do
     if [[ $(date +%s) -gt $DEADLINE ]]; then
       fail "$role — timed out after ${TIMEOUT}s"
@@ -178,14 +163,31 @@ wait_for_agent() {
       return 1
     fi
 
+    # Use python3 (always available) to parse pod JSON, exclude pre-existing pods
+    # by name, and return the newest remaining pod's phase and name.
     local result
     result=$(kubectl get pods -n "$NAMESPACE" -l "claude-agents/role=$role" \
       -o json 2>/dev/null | \
-      jq -r --arg pre "$pre" "$jq_filter" 2>/dev/null || echo '{"phase":"Pending","name":""}')
+      python3 - "$pre" << 'PYEOF'
+import json, sys
+
+pre_names = set(sys.argv[1].split()) if sys.argv[1] else set()
+data = json.load(sys.stdin)
+new_pods = [p for p in data.get("items", [])
+            if p["metadata"]["name"] not in pre_names]
+if not new_pods:
+    print("Pending|")
+else:
+    newest = sorted(new_pods, key=lambda p: p["metadata"]["creationTimestamp"])[-1]
+    phase = newest.get("status", {}).get("phase", "Pending")
+    name  = newest["metadata"]["name"]
+    print(f"{phase}|{name}")
+PYEOF
+    )
 
     local PHASE POD
-    PHASE=$(echo "$result" | jq -r '.phase' 2>/dev/null || echo "Pending")
-    POD=$(echo "$result"   | jq -r '.name'  2>/dev/null || echo "")
+    PHASE="${result%%|*}"
+    POD="${result##*|}"
 
     case "$PHASE" in
       Succeeded)
