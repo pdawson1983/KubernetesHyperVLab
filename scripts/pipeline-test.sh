@@ -146,6 +146,24 @@ fi
 AGENTS=(architect coder tester reviewer ops)
 DEADLINE=$(($(date +%s) + TIMEOUT))
 
+_POD_FILTER=$(mktemp /tmp/pod-filter-XXXXXX.py)
+cat > "$_POD_FILTER" << 'PYEOF'
+import json, sys
+pre_names = set(sys.argv[1].split()) if sys.argv[1] else set()
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print("Pending|"); sys.exit(0)
+new_pods = [p for p in data.get("items", []) if p["metadata"]["name"] not in pre_names]
+if not new_pods:
+    print("Pending|")
+else:
+    newest = sorted(new_pods, key=lambda p: p["metadata"]["creationTimestamp"])[-1]
+    phase = newest.get("status", {}).get("phase", "Pending")
+    name  = newest["metadata"]["name"]
+    print(f"{phase}|{name}")
+PYEOF
+
 wait_for_agent() {
   local role="$1"
   local pre="${PRE_PODS[$role]:-}"
@@ -161,31 +179,9 @@ wait_for_agent() {
       return 1
     fi
 
-    # Use python3 (always available) to parse pod JSON, exclude pre-existing pods
-    # by name, and return the newest remaining pod's phase and name.
     local result
     result=$(kubectl get pods -n "$NAMESPACE" -l "claude-agents/role=$role" \
-      -o json 2>/dev/null | \
-      python3 - "$pre" << 'PYEOF'
-import json, sys
-
-pre_names = set(sys.argv[1].split()) if sys.argv[1] else set()
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    print("Pending|")
-    sys.exit(0)
-new_pods = [p for p in data.get("items", [])
-            if p["metadata"]["name"] not in pre_names]
-if not new_pods:
-    print("Pending|")
-else:
-    newest = sorted(new_pods, key=lambda p: p["metadata"]["creationTimestamp"])[-1]
-    phase = newest.get("status", {}).get("phase", "Pending")
-    name  = newest["metadata"]["name"]
-    print(f"{phase}|{name}")
-PYEOF
-    )
+      -o json 2>/dev/null | python3 "$_POD_FILTER" "$pre")
 
     local PHASE POD
     PHASE="${result%%|*}"
@@ -279,4 +275,5 @@ else
 fi
 echo "══════════════════════════════════════════════════"
 
+rm -f "$_POD_FILTER"
 [ "$FAILED" -eq 0 ] || exit 1
