@@ -165,6 +165,13 @@ Task: ${TASK}
 Result: Fixture written, trigger sent (if applicable).
 EOF
 
+  # Clean up consumed trigger file (non-architect only)
+  if [ "$AGENT_ROLE" != "architect" ] && [ -f "$PAYLOAD_FILE" ]; then
+    rm -f "$PAYLOAD_FILE" 2>/dev/null \
+      && log "Consumed trigger file: $PAYLOAD_FILE" \
+      || log "Warning: could not remove trigger file $PAYLOAD_FILE (non-fatal)"
+  fi
+
   log "Mock run complete"
   exit 0
 fi

@@ -26,7 +26,7 @@ global:
   image:
     # Push: podman push 192.168.100.11:30500/claude-agent:<tag> --tls-verify=false
     repository: 192.168.100.11:30500/claude-agent
-    tag: "20260509-022526"
+    tag: "20260509-041824"
     pullPolicy: IfNotPresent
   model: claude-sonnet-4-20250514
   resources:

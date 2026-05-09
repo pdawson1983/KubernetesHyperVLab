@@ -30,7 +30,22 @@ spec:
         app.kubernetes.io/component: webhook
     spec:
       serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
       initContainers:
+        - name: setup-memory
+          image: busybox:1.36
+          securityContext:
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - mkdir -p /memory/tasks && chown 1001:1001 /memory/tasks && chmod 755 /memory/tasks
+          volumeMounts:
+            - name: agent-memory
+              mountPath: /memory
         - name: install-kubectl
           image: bitnami/kubectl:latest
           imagePullPolicy: IfNotPresent
@@ -160,10 +175,6 @@ spec:
                         task_base = MEMORY_PATH / "tasks" / task_id
                         target_dir = task_base / "inbox"
                         target_dir.mkdir(parents=True, exist_ok=True)
-                        # Agent runs as UID 1001; dispatcher runs as root.
-                        # chmod 777 so the agent can create subdirs and write files.
-                        os.chmod(str(task_base), 0o777)
-                        os.chmod(str(target_dir), 0o777)
                         inbox_payload = dict(payload)
                         inbox_payload["task_id"] = task_id
                         (target_dir / (job_name + ".json")).write_text(json.dumps(inbox_payload))
