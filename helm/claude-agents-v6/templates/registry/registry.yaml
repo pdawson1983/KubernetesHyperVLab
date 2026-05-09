@@ -1,17 +1,17 @@
 {{- if .Values.registry.enabled }}
 # =============================================================================
 # In-Cluster Container Registry
-# Uses NodePort for both push (WSL) and pull (nodes).
-# No ingress — direct NodePort access avoids TLS complexity.
+# Uses NodePort + TLS (self-signed cert) for push (WSL) and pull (nodes).
+# TLS required for containerd 2.x CRI image pull path.
 #
 # Push from WSL:
-#   podman push 192.168.100.11:30500/claude-agent:latest --tls-verify=false
+#   podman push 192.168.100.11:30500/claude-agent:<tag> --tls-verify=false
 #
-# containerd trust (run once per node after install):
+# containerd trust (run once per node — hosts.toml uses skip_verify):
 #   mkdir -p /etc/containerd/certs.d/192.168.100.11:30500
 #   cat > /etc/containerd/certs.d/192.168.100.11:30500/hosts.toml << EOF
-#   server = "http://192.168.100.11:30500"
-#   [host."http://192.168.100.11:30500"]
+#   server = "https://192.168.100.11:30500"
+#   [host."https://192.168.100.11:30500"]
 #     capabilities = ["pull", "resolve", "push"]
 #     skip_verify = true
 #   EOF
@@ -83,18 +83,27 @@ spec:
               value: {{ .Values.registry.logLevel | quote }}
             - name: REGISTRY_HTTP_ADDR
               value: "0.0.0.0:5000"
+            {{- if .Values.registry.tls.enabled }}
+            - name: REGISTRY_HTTP_TLS_CERTIFICATE
+              value: /certs/tls.crt
+            - name: REGISTRY_HTTP_TLS_KEY
+              value: /certs/tls.key
+            {{- end }}
           volumeMounts:
             - name: registry-data
               mountPath: /var/lib/registry
+            {{- if .Values.registry.tls.enabled }}
+            - name: registry-tls
+              mountPath: /certs
+              readOnly: true
+            {{- end }}
           livenessProbe:
-            httpGet:
-              path: /v2/
+            tcpSocket:
               port: registry
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
-            httpGet:
-              path: /v2/
+            tcpSocket:
               port: registry
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -109,6 +118,11 @@ spec:
         - name: registry-data
           persistentVolumeClaim:
             claimName: {{ include "claude-agents.fullname" . }}-registry
+        {{- if .Values.registry.tls.enabled }}
+        - name: registry-tls
+          secret:
+            secretName: {{ .Values.registry.tls.secretName }}
+        {{- end }}
 
 ---
 # Service — NodePort for both internal pulls and external pushes

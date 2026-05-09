@@ -26,7 +26,7 @@ automatically through a queue-watcher sidecar.
 - **Storage:**
   - `local-path` storageclass (Rancher local-path-provisioner)
   - `nfs` storageclass (NFS server on k8s-control at `/srv/nfs/k8s`)
-- **Container runtime:** containerd 1.7.24 (downgraded from 2.2.1 due to insecure registry bugs)
+- **Container runtime:** containerd 2.2.1 (transfer plugin + CRI images plugin config_path both set to /etc/containerd/certs.d)
 - **Kubernetes:** v1.29.15
 
 ### WSL Environment
@@ -136,7 +136,7 @@ kubectl create secret generic webhook-secret \
 
 ## Agent Container Image
 
-- **Registry:** Docker Hub `docker.io/pdawson1983/claude-agent:latest`
+- **Registry:** Local `192.168.100.11:30500/claude-agent` (HTTPS, self-signed CA trusted on all nodes)
 - **Base:** `node:20-slim`
 - **Runtime:** Claude Code CLI (`@anthropic-ai/claude-code`)
 - **User:** `agent` (UID 1001) — required by Claude Code security check
@@ -252,7 +252,7 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [ ] Feedback-triggered rebuild: `pipeline.feedback` event accepts a structured observation, routes to architect to propose a fix through the full pipeline including image rebuild
 - [ ] Build web UI for task submission (MD upload + guided form)
 - [ ] Add securityContext (runAsUser: 1001) to agent CronJob templates
-- [ ] Fix local registry (containerd 1.7.24 hosts.toml — may now work after downgrade)
+- [x] Local registry working with TLS (self-signed CA, system trust store, containerd 2.2.1) — agents pull from 192.168.100.11:30500 (2026-05-09)
 - [ ] Add human approval gate between Reviewer and Ops
 - [ ] Add Tekton for more complex pipeline orchestration
 
@@ -269,10 +269,13 @@ This bug caused 100+ runaway pods on 2026-05-07 and required a manual
 `kubectl scale deployment --replicas=0` to stop. Fixed in dispatcher.yaml.
 See ADR-005.
 
-**containerd insecure registry** — containerd 2.2.1 had a bug where
-`hosts.toml` was ignored by the transfer plugin. Downgraded to 1.7.24.
-Local registry at `192.168.100.11:30500` may now work — not yet retested.
-Currently using Docker Hub as workaround.
+**Local registry TLS setup (2026-05-09)** — containerd 2.x CRI image service
+requires HTTPS for registry pulls. Registry now serves TLS (self-signed cert,
+SAN: all three node IPs). CA cert installed in system trust store on all nodes
+(`/usr/local/share/ca-certificates/lab-registry-ca.crt`). Transfer plugin and
+CRI images plugin both have `config_path = '/etc/containerd/certs.d'`.
+Push from WSL: `podman push 192.168.100.11:30500/claude-agent:<tag> --tls-verify=false`
+TLS key material: `/tmp/registry-tls/` on WSL (not committed — regenerate if lost).
 
 **CronJob as template pattern** — agent CronJobs use `schedule: "0 0 31 2 *"`
 (Feb 31 — never fires) and `suspend: true` as a permanent template source.
