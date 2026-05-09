@@ -171,7 +171,7 @@ fi
 # doesn't cause kubectl exec to silently return empty.
 
 DISPATCHER=""
-log "Waiting for task directory in /memory/tasks/..."
+printf "  Waiting for task directory..."
 TASK_DEADLINE=$(($(date +%s) + 45))
 while [ -z "$TASK_ID" ] && [ $(date +%s) -lt $TASK_DEADLINE ]; do
   DISPATCHER=$(kubectl get pod -n "$NAMESPACE" \
@@ -181,8 +181,9 @@ while [ -z "$TASK_ID" ] && [ $(date +%s) -lt $TASK_DEADLINE ]; do
     TASK_ID=$(kubectl exec -n "$NAMESPACE" "$DISPATCHER" -c dispatcher -- \
       sh -c 'ls -1t /memory/tasks/ 2>/dev/null | head -1' 2>/dev/null || true)
   fi
-  [ -z "$TASK_ID" ] && sleep 3
+  [ -z "$TASK_ID" ] && { printf "."; sleep 3; }
 done
+echo ""
 
 if [ -z "$TASK_ID" ]; then
   fail "No task directory appeared in /memory/tasks/ within 45s"
@@ -219,10 +220,17 @@ PYEOF
 wait_for_agent() {
   local role="$1"
   local pre="${PRE_PODS[$role]:-}"
-  log "Waiting for $role pod (deadline in $((DEADLINE - $(date +%s)))s)..."
+  local start_epoch=$(date +%s)
+  local last_phase=""
+  log "Waiting for $role..."
 
   while true; do
-    if [[ $(date +%s) -gt $DEADLINE ]]; then
+    local now=$(date +%s)
+    local remaining=$(( DEADLINE - now ))
+    local elapsed=$(( now - start_epoch ))
+
+    if [[ $now -gt $DEADLINE ]]; then
+      echo ""
       fail "$role — timed out after ${TIMEOUT}s"
       echo "  --- dispatcher logs (last 10 lines) ---"
       kubectl logs -n "$NAMESPACE" \
@@ -241,10 +249,13 @@ wait_for_agent() {
 
     case "$PHASE" in
       Succeeded)
-        pass "$role"
+        # Clear the status line and print pass
+        printf "\r%-80s\r" " "
+        pass "$role (${elapsed}s)"
         return 0
         ;;
       Failed)
+        printf "\r%-80s\r" " "
         fail "$role pod failed"
         if [ -n "$POD" ]; then
           echo "  --- $role pod logs (last 20 lines) ---"
@@ -253,6 +264,11 @@ wait_for_agent() {
         return 1
         ;;
       *)
+        # Show live status on a single updating line
+        local pod_info=""
+        [ -n "$POD" ] && pod_info=" │ pod: ${POD##*-}"  # show just the suffix for brevity
+        printf "\r  %-10s  %s%s  │ %ds elapsed  │ %ds left  " \
+          "$role" "${PHASE:-no pod}" "$pod_info" "$elapsed" "$remaining"
         sleep 5
         ;;
     esac
