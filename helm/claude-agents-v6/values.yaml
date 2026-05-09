@@ -26,7 +26,7 @@ global:
   image:
     # After pushing: podman push 192.168.100.11:30500/claude-agent:latest --tls-verify=false
     repository: docker.io/pdawson1983/claude-agent
-    tag: "20260508-023415"
+    tag: "20260509-022526"
     pullPolicy: IfNotPresent
   model: claude-sonnet-4-20250514
   resources:
@@ -100,7 +100,7 @@ agents:
     triggers:
       - "coder.complete"
     maxTokens: 4096
-    timeout: 300
+    timeout: 600
 
   ops:
     enabled: true

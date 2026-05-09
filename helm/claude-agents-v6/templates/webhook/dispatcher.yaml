@@ -73,7 +73,8 @@ spec:
             - python3
             - -c
             - |
-              import os, json, hmac, hashlib, sys, pathlib
+              import os, json, hmac, hashlib, sys, pathlib, secrets
+              from datetime import datetime
               from http.server import HTTPServer, BaseHTTPRequestHandler
               from subprocess import run
 
@@ -94,6 +95,29 @@ spec:
                 "reviewer.approved":    "ops",
                 "deployment.requested": "ops",
               }
+
+              def create_agent_job(job_name, source_cronjob, namespace, task_id):
+                dry = run(
+                  ["kubectl", "create", "job", job_name,
+                   "--from", source_cronjob, "-n", namespace,
+                   "--dry-run=client", "-o", "json"],
+                  capture_output=True, text=True
+                )
+                if dry.returncode != 0:
+                  raise RuntimeError(dry.stderr)
+                job = json.loads(dry.stdout)
+                task_env = {"name": "TASK_ID", "value": task_id}
+                spec = job["spec"]["template"]["spec"]
+                for c in spec.get("containers", []):
+                  c.setdefault("env", []).append(task_env)
+                for c in spec.get("initContainers", []):
+                  c.setdefault("env", []).append(task_env)
+                result = run(
+                  ["kubectl", "apply", "-f", "-"],
+                  input=json.dumps(job), capture_output=True, text=True
+                )
+                if result.returncode != 0:
+                  raise RuntimeError(result.stderr)
 
               class Handler(BaseHTTPRequestHandler):
                 def do_GET(self):
@@ -131,36 +155,49 @@ spec:
                       job_name = RELEASE + "-claude-agents-" + agent + "-" + os.urandom(4).hex()
                       source_job = "cronjob/" + RELEASE + "-claude-agents-" + agent
 
-                      # Only write an inbox file for architect. For all other
-                      # agents the trigger file was already written by the
-                      # previous agent and moved to queue/active/ by the
-                      # queue-watcher. Writing back to queue/ here would cause
-                      # the queue-watcher to re-fire the event on its next poll,
-                      # creating an infinite spawn loop.
                       if agent == "architect":
-                        target_dir = MEMORY_PATH / "inbox"
+                        task_id = datetime.utcnow().strftime('%Y%m%d-%H%M%S') + '-' + secrets.token_hex(2)
+                        task_base = MEMORY_PATH / "tasks" / task_id
+                        target_dir = task_base / "inbox"
                         target_dir.mkdir(parents=True, exist_ok=True)
-                        target_file = target_dir / (job_name + ".json")
-                        target_file.write_text(body.decode("utf-8"))
-                        print("[dispatcher] wrote inbox payload to " + str(target_file), flush=True)
+                        # Agent runs as UID 1001; dispatcher runs as root.
+                        # chmod 777 so the agent can create subdirs and write files.
+                        os.chmod(str(task_base), 0o777)
+                        os.chmod(str(target_dir), 0o777)
+                        inbox_payload = dict(payload)
+                        inbox_payload["task_id"] = task_id
+                        (target_dir / (job_name + ".json")).write_text(json.dumps(inbox_payload))
+                        task_meta = {
+                          "task_id": task_id,
+                          "event": event_type,
+                          "title": payload.get("title", ""),
+                          "created_at": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+                          "status": "running",
+                        }
+                        meta_file = task_base / "task.json"
+                        meta_file.write_text(json.dumps(task_meta, indent=2))
+                        os.chmod(str(meta_file), 0o666)
+                        print("[dispatcher] task_id=" + task_id + " inbox written", flush=True)
+                      else:
+                        task_id = payload.get("task_id", "")
+                        if not task_id:
+                          print("[dispatcher] ERROR: missing task_id for event=" + event_type, flush=True)
+                          self.send_response(400)
+                          self.end_headers()
+                          return
 
-                      print("[dispatcher] creating job=" + job_name + " from=" + source_job, flush=True)
-                      result = run(
-                        ["kubectl", "create", "job", job_name,
-                         "--from", source_job,
-                         "-n", NAMESPACE],
-                        capture_output=True, text=True
-                      )
-                      if result.returncode == 0:
+                      print("[dispatcher] creating job=" + job_name + " task=" + task_id, flush=True)
+                      try:
+                        create_agent_job(job_name, source_job, NAMESPACE, task_id)
                         print("[dispatcher] created job=" + job_name, flush=True)
-                        resp = json.dumps({"dispatched": agent, "job": job_name}).encode()
+                        resp = json.dumps({"dispatched": agent, "job": job_name, "task_id": task_id}).encode()
                         self.send_response(200)
                         self.send_header("Content-Type", "application/json")
                         self.send_header("Content-Length", str(len(resp)))
                         self.end_headers()
                         self.wfile.write(resp)
-                      else:
-                        print("[dispatcher] job creation failed: " + result.stderr, flush=True)
+                      except Exception as e:
+                        print("[dispatcher] job creation failed: " + str(e), flush=True)
                         self.send_response(500)
                         self.end_headers()
                     else:
@@ -175,8 +212,7 @@ spec:
                 def log_message(self, format, *args):
                   pass
 
-              for d in ["inbox", "specs", "queue", "workspace", "reviews", "deployments", "logs"]:
-                (MEMORY_PATH / d).mkdir(parents=True, exist_ok=True)
+              (MEMORY_PATH / "tasks").mkdir(parents=True, exist_ok=True)
 
               print("[dispatcher] listening on port " + str(PORT), flush=True)
               sys.stdout.flush()
@@ -224,17 +260,14 @@ spec:
             - python3
             - -c
             - |
-              import os, json, hmac, hashlib, time, pathlib, urllib.request
+              import os, json, hmac, hashlib, time, pathlib, urllib.request, shutil, glob
 
               SECRET = os.environ.get("WEBHOOK_SECRET", "").encode()
               DISPATCHER_URL = os.environ.get("DISPATCHER_URL", "http://localhost:8080")
               POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", 5))
               MEMORY_PATH = pathlib.Path("/memory")
-              QUEUE_PATH = MEMORY_PATH / "queue"
-              PROCESSED_PATH = QUEUE_PATH / "processed"
-              ACTIVE_PATH = QUEUE_PATH / "active"
+              TASKS_PATH = MEMORY_PATH / "tasks"
 
-              # Map queue filenames to event types
               FILE_TO_EVENT = {
                 "coder.json":    "architect.complete",
                 "tester.json":   "coder.complete",
@@ -265,41 +298,39 @@ spec:
                 except Exception as e:
                   print("[queue-watcher] failed to dispatch event=" + event_type + " error=" + str(e), flush=True)
 
-              QUEUE_PATH.mkdir(parents=True, exist_ok=True)
-              PROCESSED_PATH.mkdir(parents=True, exist_ok=True)
-              ACTIVE_PATH.mkdir(parents=True, exist_ok=True)
+              TASKS_PATH.mkdir(parents=True, exist_ok=True)
 
-              print("[queue-watcher] watching " + str(QUEUE_PATH) + " every " + str(POLL_INTERVAL) + "s", flush=True)
+              print("[queue-watcher] watching " + str(TASKS_PATH) + " every " + str(POLL_INTERVAL) + "s", flush=True)
 
               while True:
-                for queue_file, event_type in FILE_TO_EVENT.items():
-                  full_path = QUEUE_PATH / queue_file
-                  if full_path.exists():
+                for trigger_str in glob.glob(str(TASKS_PATH / "*" / "queue" / "*.json")):
+                  trigger_path = pathlib.Path(trigger_str)
+                  queue_file = trigger_path.name
+                  if queue_file not in FILE_TO_EVENT:
+                    continue
+                  event_type = FILE_TO_EVENT[queue_file]
+                  task_id = trigger_path.parts[-3]
+                  try:
+                    payload_bytes = trigger_path.read_bytes()
                     try:
-                      payload_bytes = full_path.read_bytes()
-                      # Parse and enrich with event type
-                      try:
-                        payload = json.loads(payload_bytes)
-                        payload["event"] = event_type
-                        payload_bytes = json.dumps(payload).encode()
-                      except Exception:
-                        payload_bytes = json.dumps({"event": event_type}).encode()
+                      payload = json.loads(payload_bytes)
+                      payload["event"] = event_type
+                      payload["task_id"] = task_id
+                      payload_bytes = json.dumps(payload).encode()
+                    except Exception:
+                      payload_bytes = json.dumps({"event": event_type, "task_id": task_id}).encode()
 
-                      print("[queue-watcher] found " + queue_file + " -> " + event_type, flush=True)
+                    print("[queue-watcher] found " + str(trigger_path) + " -> " + event_type, flush=True)
 
-                      # Move to active/ before dispatching so the agent pod can
-                      # find it there while the job is in flight. The agent
-                      # deletes it on success; queue-watcher archives on next
-                      # pass if it's still present after job completion.
-                      import shutil
-                      active_file = ACTIVE_PATH / queue_file
-                      shutil.move(str(full_path), str(active_file))
-                      print("[queue-watcher] moved " + queue_file + " -> active/", flush=True)
+                    active_dir = trigger_path.parent / "active"
+                    active_dir.mkdir(parents=True, exist_ok=True)
+                    active_file = active_dir / queue_file
+                    shutil.move(str(trigger_path), str(active_file))
+                    print("[queue-watcher] moved to active/ task=" + task_id, flush=True)
 
-                      send_event(event_type, payload_bytes)
-                      print("[queue-watcher] dispatched " + event_type, flush=True)
-                    except Exception as e:
-                      print("[queue-watcher] error processing " + queue_file + ": " + str(e), flush=True)
+                    send_event(event_type, payload_bytes)
+                  except Exception as e:
+                    print("[queue-watcher] error processing " + str(trigger_path) + ": " + str(e), flush=True)
 
                 time.sleep(POLL_INTERVAL)
           resources:

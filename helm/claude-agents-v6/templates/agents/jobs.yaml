@@ -45,9 +45,7 @@ spec:
               command:
                 - sh
                 - -c
-                - |
-                  mkdir -p /memory/inbox /memory/specs /memory/queue \
-                           /memory/workspace /memory/reviews /memory/deployments
+                - mkdir -p /memory/tasks
               volumeMounts:
                 - name: agent-memory
                   mountPath: /memory

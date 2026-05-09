@@ -15,7 +15,7 @@
 # Usage:
 #   ./scripts/pipeline-test.sh --mock
 #   ./scripts/pipeline-test.sh --haiku
-#   ./scripts/pipeline-test.sh --mock --keep      # preserve memory artifacts
+#   ./scripts/pipeline-test.sh --mock --keep      # preserve task directory
 #   ./scripts/pipeline-test.sh --mock --timeout 120
 # =============================================================================
 
@@ -29,6 +29,7 @@ MODE=""
 KEEP=false
 PASSED=0
 FAILED=0
+TASK_ID=""
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,17 @@ done
 # ── Restore chart to defaults ─────────────────────────────────────────────────
 
 cleanup_and_restore() {
+  if [ "$MODE" = "mock" ] && [ "$KEEP" = false ] && [ -n "$TASK_ID" ]; then
+    log "Cleaning up task directory: /memory/tasks/$TASK_ID"
+    local DISP
+    DISP=$(kubectl get pod -n "$NAMESPACE" \
+      -l app.kubernetes.io/name=webhook-dispatcher -o name 2>/dev/null | head -1 || true)
+    if [ -n "$DISP" ]; then
+      kubectl exec -n "$NAMESPACE" "$DISP" -c dispatcher -- \
+        rm -rf "/memory/tasks/${TASK_ID}" 2>/dev/null || true
+      log "Task directory removed"
+    fi
+  fi
   log "Restoring chart to defaults..."
   helm upgrade claude-agents "$CHART_DIR" -n "$NAMESPACE" \
     --set global.mockMode=false \
@@ -118,18 +130,16 @@ case "$MODE" in
     ;;
 esac
 
-# ── Clean shared memory before haiku test ────────────────────────────────────
-# Accumulated workspace content from previous runs causes agents to read large
-# volumes of data and exhaust max-turns. Haiku test always starts fresh.
+# ── Clean task memory before haiku test ──────────────────────────────────────
+# Haiku test always starts fresh. Remove all prior task directories.
 
 if [ "$MODE" = "haiku" ]; then
-  log "Clearing accumulated pipeline memory for fresh test run..."
+  log "Clearing all task memory for fresh test run..."
   DISPATCHER_POD=$(kubectl get pod -n "$NAMESPACE" \
     -l app.kubernetes.io/name=webhook-dispatcher -o name 2>/dev/null | head -1)
   kubectl exec -n "$NAMESPACE" "$DISPATCHER_POD" -c dispatcher -- \
-    sh -c 'rm -rf /memory/specs/* /memory/workspace/* /memory/reviews/* \
-                  /memory/deployments/* /memory/inbox/* /memory/logs/*' 2>/dev/null || true
-  log "Memory cleared"
+    sh -c 'rm -rf /memory/tasks/*' 2>/dev/null || true
+  log "Task memory cleared"
 fi
 
 # ── Fire test webhook ─────────────────────────────────────────────────────────
@@ -154,6 +164,34 @@ else
   cleanup_and_restore
   exit 1
 fi
+
+# ── Discover the task directory ───────────────────────────────────────────────
+# The dispatcher creates /memory/tasks/<task-id>/ when it writes the inbox.
+# Re-discover the dispatcher pod on each retry so a mid-upgrade pod restart
+# doesn't cause kubectl exec to silently return empty.
+
+DISPATCHER=""
+log "Waiting for task directory in /memory/tasks/..."
+TASK_DEADLINE=$(($(date +%s) + 45))
+while [ -z "$TASK_ID" ] && [ $(date +%s) -lt $TASK_DEADLINE ]; do
+  DISPATCHER=$(kubectl get pod -n "$NAMESPACE" \
+    -l app.kubernetes.io/name=webhook-dispatcher -o name \
+    --field-selector=status.phase=Running 2>/dev/null | head -1)
+  if [ -n "$DISPATCHER" ]; then
+    TASK_ID=$(kubectl exec -n "$NAMESPACE" "$DISPATCHER" -c dispatcher -- \
+      sh -c 'ls -1t /memory/tasks/ 2>/dev/null | head -1' 2>/dev/null || true)
+  fi
+  [ -z "$TASK_ID" ] && sleep 3
+done
+
+if [ -z "$TASK_ID" ]; then
+  fail "No task directory appeared in /memory/tasks/ within 45s"
+  cleanup_and_restore
+  exit 1
+fi
+
+log "Task ID: $TASK_ID"
+pass "Task directory created: /memory/tasks/$TASK_ID"
 
 # ── Wait for each agent in sequence ──────────────────────────────────────────
 
@@ -232,10 +270,7 @@ done
 # ── Validate memory artifacts ─────────────────────────────────────────────────
 
 if [ "$CHAIN_OK" = true ]; then
-  log "Validating memory artifacts..."
-
-  DISPATCHER=$(kubectl get pod -n "$NAMESPACE" \
-    -l app.kubernetes.io/name=webhook-dispatcher -o name 2>/dev/null | head -1)
+  log "Validating memory artifacts in /memory/tasks/$TASK_ID/..."
 
   kexec() {
     kubectl exec -n "$NAMESPACE" "$DISPATCHER" -c dispatcher -- "$@" 2>/dev/null
@@ -243,9 +278,18 @@ if [ "$CHAIN_OK" = true ]; then
 
   check_dir() {
     local dir="$1" desc="$2"
-    COUNT=$(kexec find "/memory/$dir" -type f | wc -l || echo 0)
-    [ "$COUNT" -gt 0 ] && pass "$desc" || fail "$desc — /memory/$dir is empty"
+    COUNT=$(kexec find "/memory/tasks/$TASK_ID/$dir" -type f 2>/dev/null | wc -l || echo 0)
+    [ "$COUNT" -gt 0 ] && pass "$desc" || fail "$desc — /memory/tasks/$TASK_ID/$dir is empty"
   }
+
+  # Validate task.json metadata
+  TASK_JSON=$(kexec cat "/memory/tasks/$TASK_ID/task.json" 2>/dev/null || true)
+  if echo "$TASK_JSON" | grep -q '"status"'; then
+    pass "task.json metadata written"
+    echo "$TASK_JSON" | sed 's/^/  /'
+  else
+    fail "task.json missing or malformed"
+  fi
 
   check_dir "specs"       "Spec written by architect"
   check_dir "workspace"   "Code written by coder"
@@ -254,24 +298,9 @@ if [ "$CHAIN_OK" = true ]; then
 
   # Show the ops deployment artifact as a quick sanity read
   log "Ops output (last artifact):"
-  kexec find /memory/deployments -type f | sort | tail -1 | \
+  kexec find "/memory/tasks/$TASK_ID/deployments" -type f | sort | tail -1 | \
     xargs -I{} kubectl exec -n "$NAMESPACE" "$DISPATCHER" -c dispatcher -- cat {} 2>/dev/null | \
     head -10 | sed 's/^/  /' || true
-fi
-
-# ── Clean up mock artifacts ───────────────────────────────────────────────────
-
-if [ "$MODE" = "mock" ] && [ "$KEEP" = false ]; then
-  log "Cleaning up mock artifacts..."
-  DISPATCHER=$(kubectl get pod -n "$NAMESPACE" \
-    -l app.kubernetes.io/name=webhook-dispatcher -o name 2>/dev/null | head -1)
-  kubectl exec -n "$NAMESPACE" "$DISPATCHER" -c dispatcher -- \
-    sh -c 'rm -f /memory/specs/mock-spec-* \
-                 /memory/reviews/mock-review-* \
-                 /memory/logs/*-mock-* && \
-           rm -rf /memory/workspace/mock-project \
-                  /memory/deployments/mock-*' 2>/dev/null || true
-  log "Mock artifacts removed"
 fi
 
 # ── Restore chart ─────────────────────────────────────────────────────────────

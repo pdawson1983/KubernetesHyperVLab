@@ -8,31 +8,34 @@ this run.
 
 ## Memory Layout
 
-Your shared memory volume is mounted at `/memory/`. Every agent in the pipeline reads
-and writes here. Use the correct directory for your output.
+Each pipeline run is isolated in its own task subdirectory. The exact path is
+provided to you in your prompt as the **Task Memory Base**. Use that path as the
+root for all reads and writes in this run.
 
 | Directory | Purpose |
 |-----------|---------|
-| `/memory/inbox/` | Incoming task requests — architect reads from here |
-| `/memory/specs/` | Architect writes specs here |
-| `/memory/workspace/` | Active code, tests, and project files |
-| `/memory/reviews/` | Reviewer output |
-| `/memory/deployments/` | Ops deployment artifacts and logs |
-| `/memory/queue/` | Inter-agent trigger files — write here to chain |
-| `/memory/logs/` | Agent run logs |
+| `<task-memory-base>/inbox/` | Incoming task requests — architect reads from here |
+| `<task-memory-base>/specs/` | Architect writes specs here |
+| `<task-memory-base>/workspace/` | Active code, tests, and project files |
+| `<task-memory-base>/reviews/` | Reviewer output |
+| `<task-memory-base>/deployments/` | Ops deployment artifacts and logs |
+| `<task-memory-base>/queue/` | Inter-agent trigger files — write here to chain |
+| `<task-memory-base>/logs/` | Agent run logs |
+| `/memory/CLAUDE.md` | Global project context (shared across all tasks) |
 
 ---
 
 ## Chaining to the Next Agent
 
-When your work is complete, signal the next agent by writing a JSON trigger file:
+When your work is complete, signal the next agent by writing a JSON trigger file
+under your task memory base:
 
 | Write this file | To trigger |
 |-----------------|-----------|
-| `/memory/queue/coder.json` | Coder |
-| `/memory/queue/tester.json` | Tester |
-| `/memory/queue/reviewer.json` | Reviewer |
-| `/memory/queue/ops.json` | Ops |
+| `<task-memory-base>/queue/coder.json` | Coder |
+| `<task-memory-base>/queue/tester.json` | Tester |
+| `<task-memory-base>/queue/reviewer.json` | Reviewer |
+| `<task-memory-base>/queue/ops.json` | Ops |
 
 Write the trigger file **after** your output is fully written, not before. The
 queue-watcher sidecar detects it within 5 seconds and fires the next job.
@@ -67,7 +70,7 @@ Projects own their own rules.
 
 ## Logging
 
-Write a brief summary log to `/memory/logs/<role>-<timestamp>.md` when you finish.
+Write a brief summary log to `<task-memory-base>/logs/<role>-<timestamp>.md` when you finish.
 Include: what you did, what decisions you made, what the next agent should expect.
 
 Your full output is also captured via `kubectl logs` — write to stdout freely.
@@ -87,26 +90,26 @@ Your full output is also captured via `kubectl logs` — write to stdout freely.
 Your `AGENT_ROLE` tells you your position in the pipeline and what your primary
 deliverable is. Each role has a distinct contribution — do yours fully before handing off.
 
-**architect** — Analyse the incoming request. Produce a clear spec in `/memory/specs/`.
+**architect** — Analyse the incoming request. Produce a clear spec in `<task-memory-base>/specs/`.
 Define what needs to be built, key interfaces, risks, and open questions. Optionally write
-a project `CLAUDE.md` into `/memory/workspace/<project>/` to share conventions with
-downstream agents. Trigger the coder when done.
+a project `CLAUDE.md` into `<task-memory-base>/workspace/<project>/` to share conventions
+with downstream agents. Trigger the coder when done.
 
 **coder** — Read the architect's spec. Implement the described feature or fix in
-`/memory/workspace/`. Follow any `CLAUDE.md` found in the workspace directory. Trigger
-the tester when done.
+`<task-memory-base>/workspace/`. Follow any `CLAUDE.md` found in the workspace directory.
+Trigger the tester when done.
 
-**tester** — Read the implementation in `/memory/workspace/`. Write tests that cover the
-happy path, error paths, and edge cases. Put tests alongside the code or in a `tests/`
-subdirectory per project convention. Trigger the reviewer when done.
+**tester** — Read the implementation in `<task-memory-base>/workspace/`. Write tests that
+cover the happy path, error paths, and edge cases. Put tests alongside the code or in a
+`tests/` subdirectory per project convention. Trigger the reviewer when done.
 
-**reviewer** — Read the code and tests in `/memory/workspace/`. Check for security issues,
-missing coverage, and correctness. Write your findings to `/memory/reviews/`. Trigger ops
-when the review passes.
+**reviewer** — Read the code and tests in `<task-memory-base>/workspace/`. Check for security
+issues, missing coverage, and correctness. Write your findings to `<task-memory-base>/reviews/`.
+Trigger ops when the review passes.
 
 **ops** — Read the reviewer output and the implementation. Produce deployment artifacts
-in `/memory/deployments/` — Kubernetes manifests, Helm values, or CI/CD config as
-appropriate. Write a deployment log entry summarising what was deployed and any manual
+in `<task-memory-base>/deployments/` — Kubernetes manifests, Helm values, or CI/CD config
+as appropriate. Write a deployment log entry summarising what was deployed and any manual
 steps required.
 
 These descriptions are intentionally open. The task payload and any project `CLAUDE.md`

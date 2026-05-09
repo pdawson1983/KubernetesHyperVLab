@@ -88,7 +88,7 @@ KubernetesHyperVLab/
 **Release:** `claude-agents` in namespace `claude-agents`
 **Chart version:** 0.5.0
 **Revision:** 40
-**Image tag:** `20260508-023415` (pinned — update in values.yaml on each push)
+**Image tag:** `20260509-022526` (pinned — update in values.yaml on each push)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
 ### What's Running
@@ -160,20 +160,22 @@ User submits task (curl or web UI)
          ↓
 webhook.k8s.local (nginx ingress → dispatcher pod)
          ↓
-dispatcher writes payload to /memory/inbox/<jobname>.json
-dispatcher creates architect Job from CronJob template
+dispatcher generates task_id (YYYYMMDD-HHMMSS-xxxx)
+dispatcher writes payload to /memory/tasks/<task-id>/inbox/<jobname>.json
+dispatcher creates architect Job (injects TASK_ID env var via dry-run+apply)
          ↓
 Architect pod starts (docker.io/pdawson1983/claude-agent:latest)
-  - reads /memory/inbox/
+  - reads /memory/tasks/<task-id>/inbox/
   - reads /agent/CLAUDE.md (general instructions, baked into image — auto-read by Claude Code)
   - reads /memory/CLAUDE.md if present (optional shared project context)
-  - calls Claude Code CLI
-  - writes spec to /memory/specs/
-  - writes /memory/queue/coder.json
+  - calls Claude Code CLI (prompt includes resolved MEMORY_BASE path)
+  - writes spec to /memory/tasks/<task-id>/specs/
+  - writes /memory/tasks/<task-id>/queue/coder.json
   - exits 0
          ↓
-queue-watcher sidecar detects /memory/queue/coder.json
-POSTs "architect.complete" event to dispatcher on localhost:8080
+queue-watcher sidecar detects /memory/tasks/<task-id>/queue/coder.json
+enriches payload with task_id, POSTs "architect.complete" to dispatcher
+dispatcher extracts task_id, creates Coder Job with TASK_ID env var
          ↓
 dispatcher creates Coder Job
          ↓
@@ -184,20 +186,21 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 
 ```
 /memory/                          ← NFS PVC, mounted by all pods
-├── inbox/                        ← dispatcher writes here for architect
-├── specs/                        ← architect writes specs here
-├── workspace/                    ← coder writes code here
-│   └── tests/                    ← tester writes tests here
-├── reviews/                      ← reviewer writes reviews here
-├── deployments/                  ← ops writes deployment logs here
-├── queue/                        ← inter-agent trigger files
-│   ├── coder.json                ← triggers coder
-│   ├── tester.json               ← triggers tester
-│   ├── reviewer.json             ← triggers reviewer
-│   ├── ops.json                  ← triggers ops
-│   └── processed/                ← archived after pickup
-├── logs/                         ← all agent output logs
-└── CLAUDE.md                     ← project context (all agents read this)
+├── tasks/
+│   └── <task-id>/                ← isolated per pipeline run (YYYYMMDD-HHMMSS-xxxx)
+│       ├── inbox/                ← dispatcher writes architect payload here
+│       ├── specs/                ← architect writes specs here
+│       ├── workspace/            ← coder writes code here
+│       ├── reviews/              ← reviewer writes reviews here
+│       ├── deployments/          ← ops writes deployment artifacts here
+│       ├── queue/                ← inter-agent trigger files for this task
+│       │   ├── coder.json        ← triggers coder
+│       │   ├── tester.json       ← triggers tester
+│       │   ├── reviewer.json     ← triggers reviewer
+│       │   ├── ops.json          ← triggers ops
+│       │   └── active/           ← queue-watcher moves trigger here before dispatch
+│       └── logs/                 ← agent output logs for this task
+└── CLAUDE.md                     ← global project context (all agents read this)
 ```
 
 ---
@@ -228,18 +231,28 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Switched cluster to Claude Max credentials (claude-credentials secret, enabled in values.yaml)
 - [x] pipeline-test.sh --mock passing 12/12 (zero tokens, full 5-agent chain validated)
 - [x] pipeline-test.sh --haiku passing 6/7 (architect→coder→tester→reviewer chains with real Claude; tester timeout known issue)
+- [x] Task-scoped memory namespacing: /memory/tasks/<task-id>/ per run — prevents stale data accumulation and enables concurrent tasks (2026-05-09, image 20260509-022526, mock 14/14)
+- [x] Task metadata: task.json written per run with event, title, created_at, status (2026-05-09)
+- [x] Task ID returned in webhook HTTP 200 response body (2026-05-09)
+- [x] Tester agent timeout increased 300s → 600s (2026-05-09)
 
 ---
 
 ## What's Next
 
-- [ ] Task-scoped memory namespacing: /memory/tasks/<task-id>/ per run, support concurrent tasks and multiple repos (next session)
-- [ ] Fix haiku test tester timeout (agent AGENT_TIMEOUT=300s insufficient for Haiku writing tests)
+- [x] Task metadata registry: /memory/tasks/<task-id>/task.json written on creation (task_id, event, title, created_at, status) — queryable via kubectl exec (2026-05-09)
+- [x] Task ID in webhook response body: confirmed present as `task_id` field in HTTP 200 JSON (2026-05-09)
+- [x] Tester timeout: bumped from 300s → 600s in values.yaml (2026-05-09)
 - [ ] Expand control plane LVM volume (same 10GB gap as workers — see knowledge base)
+- [ ] Git repo integration: accept repo URL in task payload; coder clones into /memory/tasks/<task-id>/workspace/<repo>/ and pushes branch on completion
+- [ ] Public repo push: ops agent pushes branch/PR to GitHub at end of pipeline; requires git credentials secret + GitHub token
+- [ ] CI/CD scope: pipeline currently runs locally on cluster; external CI/CD (GitHub Actions → webhook, or pipeline → Actions) is a future feature requiring per-task repo/workflow config
+- [ ] System self-improvement — `system.improve` event type routes to architect with this repo as the target; agents propose and implement changes to the pipeline itself, ops opens a PR
+- [ ] Post-run telemetry: ops appends structured log entry (timing, token usage, success/fail) to /memory/telemetry/; periodic meta-agent reads logs and proposes tuning changes
+- [ ] Feedback-triggered rebuild: `pipeline.feedback` event accepts a structured observation, routes to architect to propose a fix through the full pipeline including image rebuild
 - [ ] Build web UI for task submission (MD upload + guided form)
 - [ ] Add securityContext (runAsUser: 1001) to agent CronJob templates
 - [ ] Fix local registry (containerd 1.7.24 hosts.toml — may now work after downgrade)
-- [ ] Add GitHub webhook integration for real repo events
 - [ ] Add human approval gate between Reviewer and Ops
 - [ ] Add Tekton for more complex pipeline orchestration
 
@@ -272,19 +285,18 @@ must be re-added after WSL restarts. Scheduled task exists but needs validation.
 WEBHOOK_SECRET via HMAC. If the secret is empty, signing is skipped.
 
 **Trigger file race condition (fixed)** — queue-watcher moves trigger files to
-`/memory/queue/active/<role>.json` before dispatching the event. `entrypoint.sh`
-checks `queue/<role>.json` first, then falls back to `queue/active/<role>.json`.
-See ADR-004 in the knowledge base.
+`/memory/tasks/<task-id>/queue/active/<role>.json` before dispatching the event.
+`entrypoint.sh` checks `queue/<role>.json` first, then falls back to `queue/active/<role>.json`
+(both relative to MEMORY_BASE). See ADR-004 in the knowledge base.
 
 **Worker LVM volumes** — Ubuntu installer left workers with 10GB LV on 20GB disks.
 Expanded online with `lvextend + resize2fs` (no downtime). Control plane likely
 has the same gap — expand proactively before it causes issues.
 
-**Flat /memory/ namespace — no task isolation** — all pipeline runs share the same
-`/memory/` directories. Accumulated content from previous runs causes agents (especially
-reviewer) to read large volumes of old data, exhausting max-turns. Concurrent tasks
-would corrupt each other's queues. Fix planned for next session: task-scoped
-subdirectories `/memory/tasks/<task-id>/`. The haiku test clears memory as a workaround.
+**Task isolation implemented (2026-05-09)** — each run gets its own `/memory/tasks/<task-id>/`
+directory. TASK_ID is generated by the dispatcher, directories are pre-created with 0o777
+(dispatcher runs as root, agent as UID 1001), and TASK_ID is injected into Job specs via
+dry-run+apply. Old flat `/memory/inbox/`, `/memory/specs/` etc. are no longer written.
 
 **Podman + Docker Hub manifest deduplication on WSL2** — `podman build --no-cache`
 produces a new local image ID but the pushed manifest config hash may match a prior
