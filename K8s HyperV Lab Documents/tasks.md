@@ -8,7 +8,6 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 
 | Task | Notes |
 |------|-------|
-| Expand control plane LVM volume | Same 10GB gap as workers; expand before it causes issues |
 
 ---
 
@@ -70,3 +69,4 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 | Fix haiku test tester timeout | 2026-05-09 | Bumped agents.tester.timeout from 300s to 600s in values.yaml |
 | Local registry TLS (containerd 2.x) | 2026-05-09 | Self-signed CA, system trust store on all nodes, registry serves HTTPS; agents pull from 192.168.100.11:30500 |
 | Validate local registry after containerd fix | 2026-05-09 | Working after TLS setup + CA in system trust store; switched image repo in values.yaml |
+| Expand control plane LVM volume | 2026-05-09 | No action needed — LV already 17.3GB using full 20GB disk (no gap, unlike workers) |
