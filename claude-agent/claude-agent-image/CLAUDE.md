@@ -2,7 +2,7 @@
 
 ## What This Is
 
-The container image (`docker.io/pdawson1983/claude-agent:latest`) that runs inside
+The container image (`192.168.100.11:30500/claude-agent:<tag>`) that runs inside
 every Kubernetes agent Job. All five roles (Architect, Coder, Reviewer, Tester, Ops)
 share one image — the role is injected via `AGENT_ROLE` env var. General operating
 instructions are baked into the image as `/agent/CLAUDE.md` (see ADR-006).
@@ -27,32 +27,35 @@ VERSION_TAG="$(date -u +%Y%m%d-%H%M%S)"
 podman build --no-cache --build-arg BUILD_DATE="${VERSION_TAG}" -t claude-agent:latest .
 
 # Verify expected content is in the image before pushing
-podman run --rm --entrypoint grep claude-agent:latest -c "AGENT_MOCK" /agent/entrypoint.sh
+podman run --rm --entrypoint grep claude-agent:latest -c "TASK_ID" /agent/entrypoint.sh
 
-podman tag claude-agent:latest docker.io/pdawson1983/claude-agent:${VERSION_TAG}
-podman push docker.io/pdawson1983/claude-agent:${VERSION_TAG}
+# Push to local registry (self-signed cert — tls-verify=false for push only)
+podman tag claude-agent:latest 192.168.100.11:30500/claude-agent:${VERSION_TAG}
+podman push 192.168.100.11:30500/claude-agent:${VERSION_TAG} --tls-verify=false
 echo "Update values.yaml image.tag to: ${VERSION_TAG}"
 ```
 
 After pushing: update `global.image.tag` in `helm/claude-agents-v6/values.yaml` and
 run `helm upgrade claude-agents . -n claude-agents`. Nodes use `pullPolicy: IfNotPresent`
-and cache the image after first pull.
+and cache the image after first pull. Nodes trust the registry via the system CA bundle
+(`/usr/local/share/ca-certificates/lab-registry-ca.crt`).
 
 ## Entrypoint Flow
 
-1. Validate `AGENT_ROLE` is set
-2. Auth check: use `ANTHROPIC_API_KEY` if set; else copy `~/.claude-creds/.credentials.json`
+1. Validate `AGENT_ROLE` and `TASK_ID` are set
+2. Set `MEMORY_BASE=/memory/tasks/$TASK_ID` — all reads/writes use this path
+3. Auth check: use `ANTHROPIC_API_KEY` if set; else copy `~/.claude-creds/.credentials.json`
    to `~/.claude/` (Claude.ai Max subscription support)
-3. Ensure memory directories exist
-4. Find trigger payload:
-   - `architect` → most recent file in `/memory/inbox/`
-   - all others → `/memory/queue/<role>.json` (falls back to `queue/active/<role>.json`)
-5. **If `AGENT_MOCK=true`:** write fixture files for this role, write trigger file, exit 0
-6. Build prompt = role identity + payload + `/memory/CLAUDE.md` content (if present)
-7. Write prompt to tmpfile, run `timeout $AGENT_TIMEOUT claude --print --max-turns $AGENT_MAX_TURNS --dangerously-skip-permissions`
-8. Tee Claude output to `/memory/logs/<role>-output-<timestamp>.log`
-9. On success: delete consumed trigger file (non-architect only). Exit 0 on success,
-   124 on timeout, else Claude's exit code.
+4. Create task-scoped directories under `$MEMORY_BASE` (`mkdir -p inbox specs queue ...`)
+5. Find trigger payload:
+   - `architect` → most recent file in `$MEMORY_BASE/inbox/`
+   - all others → `$MEMORY_BASE/queue/<role>.json` (falls back to `queue/active/<role>.json`)
+6. **If `AGENT_MOCK=true`:** write fixture files, write trigger file (to `$MEMORY_BASE/queue/`), exit 0
+7. Build prompt = role identity + **resolved MEMORY_BASE path** + payload + `/memory/CLAUDE.md` (if present)
+8. Write prompt to tmpfile, run `timeout $AGENT_TIMEOUT claude --print --max-turns $AGENT_MAX_TURNS --dangerously-skip-permissions`
+9. Tee Claude output to `$MEMORY_BASE/logs/<role>-output-<timestamp>.log`
+10. On success: delete consumed trigger file (non-architect only). Exit 0 on success,
+    124 on timeout, else Claude's exit code.
 
 Note: Claude Code reads `/agent/CLAUDE.md` automatically because WORKDIR is `/agent`.
 The prompt is kept minimal — role identity, payload, optional project context.
@@ -72,10 +75,11 @@ The prompt is kept minimal — role identity, payload, optional project context.
 |----------|---------|--------|
 | `ANTHROPIC_API_KEY` | — | K8s Secret `anthropic-api-key` (optional if using Max credentials) |
 | `AGENT_ROLE` | — | CronJob template env (label-derived via fieldRef) |
+| `TASK_ID` | — | Injected per-run by dispatcher via dry-run+apply (see ADR-009) |
 | `AGENT_MOCK` | `false` | Helm `global.mockMode` — skip Claude, write fixtures |
 | `AGENT_MAX_TURNS` | `10` | Helm `global.maxTurns` — reduced to 3 for Haiku test mode |
-| `AGENT_TIMEOUT` | `300` | CronJob template env (per-agent in values.yaml) |
-| `MEMORY_PATH` | `/memory` | CronJob template env |
+| `AGENT_TIMEOUT` | `300` | CronJob template env (per-agent in values.yaml; tester=600s) |
+| `MEMORY_PATH` | `/memory` | NFS mount point; task-scoped base is `$MEMORY_PATH/tasks/$TASK_ID` |
 | `HOME` | `/home/agent` | Set explicitly so Claude Code finds credentials correctly |
 
 ## Changing Agent Behaviour

@@ -87,8 +87,9 @@ KubernetesHyperVLab/
 
 **Release:** `claude-agents` in namespace `claude-agents`
 **Chart version:** 0.5.0
-**Revision:** 40
+**Revision:** 69
 **Image tag:** `20260509-022526` (pinned — update in values.yaml on each push)
+**Image registry:** `192.168.100.11:30500` (local, HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
 ### What's Running
@@ -357,15 +358,28 @@ VERSION_TAG="$(date -u +%Y%m%d-%H%M%S)"
 podman build --no-cache --build-arg BUILD_DATE="${VERSION_TAG}" -t claude-agent:latest .
 
 # Verify the change is in the image before pushing
-podman run --rm --entrypoint grep claude-agent:latest -c "AGENT_MOCK" /agent/entrypoint.sh
+podman run --rm --entrypoint grep claude-agent:latest -c "TASK_ID" /agent/entrypoint.sh
 
-# Push with versioned tag
-podman tag claude-agent:latest docker.io/pdawson1983/claude-agent:${VERSION_TAG}
-podman push docker.io/pdawson1983/claude-agent:${VERSION_TAG}
+# Push to local registry (--tls-verify=false because self-signed cert)
+podman tag claude-agent:latest 192.168.100.11:30500/claude-agent:${VERSION_TAG}
+podman push 192.168.100.11:30500/claude-agent:${VERSION_TAG} --tls-verify=false
 
 # Update values.yaml image.tag to $VERSION_TAG, then upgrade
 cd KubernetesHyperVLab/helm/claude-agents-v6
 helm upgrade claude-agents . -n claude-agents
+
+# Refresh Claude.ai Max credentials (expire ~every 24h)
+claude auth login   # interactive, run in terminal
+kubectl delete secret claude-credentials -n claude-agents
+kubectl create secret generic claude-credentials \
+  --from-file=.credentials.json=$HOME/.claude/.credentials.json \
+  -n claude-agents
+
+# Inspect a specific task run
+TASK_ID=<task-id>
+kubectl exec -n claude-agents \
+  $(kubectl get pod -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
+  -c dispatcher -- find /memory/tasks/${TASK_ID} -type f
 
 # Pipeline smoke test (zero tokens)
 cd KubernetesHyperVLab

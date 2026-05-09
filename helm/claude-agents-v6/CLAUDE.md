@@ -1,7 +1,8 @@
 # Helm Chart: claude-agents v6 (Active)
 
 **Version:** 0.5.0 | **Release name:** `claude-agents` | **Namespace:** `claude-agents`
-**Current revision:** 40 | **Image tag:** `20260508-023415`
+**Current revision:** 69 | **Image tag:** `20260509-022526`
+**Image registry:** `192.168.100.11:30500` (local HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
 This is the live chart. Do not edit files in `helm/archive/`.
@@ -53,6 +54,7 @@ To change event routing, edit `webhook/dispatcher.yaml` (the Python dict).
 | Section | What to change here |
 |---------|---------------------|
 | `global.image.tag` | Versioned tag after each push (format: `YYYYMMDD-HHMMSS`); never use `latest` |
+| `global.image.repository` | `192.168.100.11:30500/claude-agent` (local registry, HTTPS) |
 | `global.model` | Claude model for all agents |
 | `global.maxTurns` | Max agentic turns per invocation (default 10; set to 3 for Haiku test) |
 | `global.mockMode` | `true` = agents write fixtures instead of calling Claude (zero token test) |
@@ -60,9 +62,11 @@ To change event routing, edit `webhook/dispatcher.yaml` (the Python dict).
 | `global.claudeCredentials.secretName` | Name of the K8s secret holding `.credentials.json` (default: `claude-credentials`) |
 | `global.resources` | Default CPU/memory for all agent pods |
 | `agents.<role>.maxTokens` | Per-role token limit |
-| `agents.<role>.timeout` | Per-role timeout in seconds |
+| `agents.<role>.timeout` | Per-role timeout in seconds (tester: 600s, others: 300s) |
 | `memory.storageClass` | Must match a StorageClass with ReadWriteMany (currently "nfs") |
-| `registry.nodePort` | Must match the containerd hosts.toml on every node |
+| `registry.nodePort` | NodePort for registry (30500) |
+| `registry.tls.enabled` | `true` = mount TLS cert into registry pod (currently active) |
+| `registry.tls.secretName` | K8s secret name holding `tls.crt` + `tls.key` (default: `registry-tls`) |
 
 **Note:** `agents.<role>.instructions` and `projectContext` no longer exist. Agent
 behaviour is governed by the image (`agent-base.md`), not Helm. See ADR-006.
