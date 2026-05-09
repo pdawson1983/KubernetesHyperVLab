@@ -249,7 +249,8 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [ ] Public repo push: ops agent pushes branch/PR to GitHub at end of pipeline; requires git credentials secret + GitHub token
 - [ ] CI/CD scope: pipeline currently runs locally on cluster; external CI/CD (GitHub Actions → webhook, or pipeline → Actions) is a future feature requiring per-task repo/workflow config
 - [ ] System self-improvement — `system.improve` event type routes to architect with this repo as the target; agents propose and implement changes to the pipeline itself, ops opens a PR
-- [ ] Post-run telemetry: ops appends structured log entry (timing, token usage, success/fail) to /memory/telemetry/; periodic meta-agent reads logs and proposes tuning changes
+- [x] Phase 1 run telemetry: entrypoint.sh writes per-agent timing + status to task.json; completed/failed runs archived to /memory/telemetry/<task-id>.json (2026-05-09)
+- [ ] Phase 2 telemetry: Postgres backing store when web UI is built — query telemetry with SQL, replace JSON file reads; SQLite on NFS is viable interim if web UI arrives before Postgres
 - [ ] Feedback-triggered rebuild: `pipeline.feedback` event accepts a structured observation, routes to architect to propose a fix through the full pipeline including image rebuild
 - [ ] Build web UI for task submission (MD upload + guided form)
 - [ ] Add securityContext (runAsUser: 1001) to agent CronJob templates

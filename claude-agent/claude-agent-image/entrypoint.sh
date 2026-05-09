@@ -6,10 +6,11 @@
 # Flow:
 #   1. Validate AGENT_ROLE, TASK_ID, and auth (API key or Claude.ai credentials)
 #   2. Set MEMORY_BASE = /memory/tasks/$TASK_ID (task-scoped subdirectory)
-#   3. Find the trigger payload (inbox for architect, queue for others)
-#   4. Build a prompt: role identity + task memory base + payload + project context
-#   5. Run Claude Code — it reads /agent/CLAUDE.md automatically from WORKDIR
-#   6. Exit with Claude Code's exit code
+#   3. Record agent start time in task.json
+#   4. Find the trigger payload (inbox for architect, queue for others)
+#   5. Build a prompt: role identity + task memory base + payload + project context
+#   6. Run Claude Code — it reads /agent/CLAUDE.md automatically from WORKDIR
+#   7. Record agent completion in task.json; archive to /memory/telemetry/ when done
 #
 # Role-specific behaviour and project conventions come from:
 #   /agent/CLAUDE.md          — baked into image, read automatically by Claude Code
@@ -68,6 +69,71 @@ mkdir -p \
   "${MEMORY_BASE}/reviews" \
   "${MEMORY_BASE}/deployments" \
   "${MEMORY_BASE}/logs"
+
+# ── Telemetry: record agent start ─────────────────────────────────────────────
+
+_START_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+_START_EPOCH=$(date +%s)
+
+python3 -c "
+import json, pathlib
+p = pathlib.Path('${MEMORY_BASE}/task.json')
+if p.exists():
+    d = json.loads(p.read_text())
+    d.setdefault('agents', {})['${AGENT_ROLE}'] = {'started_at': '${_START_TS}', 'status': 'running'}
+    p.write_text(json.dumps(d, indent=2))
+" 2>/dev/null || true
+
+# ── Telemetry: record agent completion and archive if final ───────────────────
+# Call with: _record_completion <agent_status>
+# agent_status: success | failed | timeout
+# Archives task.json to /memory/telemetry/ when:
+#   - ops completes successfully (pipeline done)
+#   - any agent fails or times out (pipeline aborted)
+
+_record_completion() {
+  local agent_status="$1"
+  local end_ts end_dur
+  end_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  end_dur=$(( $(date +%s) - _START_EPOCH ))
+
+  python3 -c "
+import json, pathlib, shutil
+from datetime import datetime, timezone
+
+p = pathlib.Path('${MEMORY_BASE}/task.json')
+if not p.exists():
+    exit(0)
+d = json.loads(p.read_text())
+
+# Update this agent's entry
+d.setdefault('agents', {}).setdefault('${AGENT_ROLE}', {}).update({
+    'completed_at': '$end_ts',
+    'duration_seconds': $end_dur,
+    'status': '$agent_status',
+})
+
+# Archive on final agent (ops success) or any failure
+is_final = '${AGENT_ROLE}' == 'ops' or '$agent_status' != 'success'
+if is_final:
+    task_status = 'completed' if '$agent_status' == 'success' else 'failed'
+    d['status'] = task_status
+    d['completed_at'] = '$end_ts'
+    if '$agent_status' != 'success':
+        d['failed_agent'] = '${AGENT_ROLE}'
+    try:
+        c = datetime.fromisoformat(d.get('created_at', '$end_ts').replace('Z', '+00:00'))
+        e = datetime.fromisoformat('$end_ts'.replace('Z', '+00:00'))
+        d['duration_seconds'] = int((e - c).total_seconds())
+    except Exception:
+        pass
+    tel = pathlib.Path('${MEMORY_PATH}/telemetry')
+    tel.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(p), str(tel / (d.get('task_id', '${TASK_ID}') + '.json')))
+
+p.write_text(json.dumps(d, indent=2))
+" 2>/dev/null || true
+}
 
 # ── Find the trigger payload ──────────────────────────────────────────────────
 # Architect reads from MEMORY_BASE/inbox/ (written by the dispatcher)
@@ -172,6 +238,7 @@ EOF
       || log "Warning: could not remove trigger file $PAYLOAD_FILE (non-fatal)"
   fi
 
+  _record_completion "success"
   log "Mock run complete"
   exit 0
 fi
@@ -231,6 +298,7 @@ rm -f "$PROMPT_FILE"
 # ── Handle completion ─────────────────────────────────────────────────────────
 
 if [ $EXIT_CODE -eq 0 ]; then
+  _record_completion "success"
   log "Completed successfully"
   if [ "$AGENT_ROLE" != "architect" ] && [ -f "$PAYLOAD_FILE" ]; then
     rm -f "$PAYLOAD_FILE" 2>/dev/null \
@@ -238,8 +306,10 @@ if [ $EXIT_CODE -eq 0 ]; then
       || log "Warning: could not remove trigger file $PAYLOAD_FILE (NFS ownership — non-fatal)"
   fi
 elif [ $EXIT_CODE -eq 124 ]; then
+  _record_completion "timeout"
   die "Timed out after ${AGENT_TIMEOUT}s"
 else
+  _record_completion "failed"
   die "Claude Code exited with code $EXIT_CODE"
 fi
 

@@ -42,7 +42,10 @@ spec:
           command:
             - sh
             - -c
-            - mkdir -p /memory/tasks && chown 1001:1001 /memory/tasks && chmod 755 /memory/tasks
+            - |
+              mkdir -p /memory/tasks /memory/telemetry
+              chown 1001:1001 /memory/tasks /memory/telemetry
+              chmod 755 /memory/tasks /memory/telemetry
           volumeMounts:
             - name: agent-memory
               mountPath: /memory
