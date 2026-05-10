@@ -20,10 +20,25 @@
 
 set -euo pipefail
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Early environment — needed before log() can reference them ────────────────
+
+AGENT_ROLE="${AGENT_ROLE:-}"
+TASK_ID="${TASK_ID:-}"
+MEMORY_PATH="${MEMORY_PATH:-/memory}"
+MEMORY_BASE="${MEMORY_PATH}/tasks/${TASK_ID}"
+
+# ── Persistent entrypoint log ─────────────────────────────────────────────────
+# Written to NFS alongside Claude output so the full agent trace survives pod
+# termination. Created before validation so even startup errors are captured.
+
+_LOG_DIR="${MEMORY_BASE}/logs"
+_LOG_FILE="${_LOG_DIR}/${AGENT_ROLE:-agent}-entrypoint.log"
+mkdir -p "$_LOG_DIR" 2>/dev/null || true
 
 log() {
-  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [$AGENT_ROLE] $*"
+  local msg="[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [${AGENT_ROLE:-agent}] $*"
+  echo "$msg"
+  echo "$msg" >> "$_LOG_FILE" 2>/dev/null || true
 }
 
 die() {
@@ -33,13 +48,9 @@ die() {
 
 # ── Validate environment ──────────────────────────────────────────────────────
 
-[ -z "${AGENT_ROLE:-}" ] && die "AGENT_ROLE is not set"
+[ -z "${AGENT_ROLE}" ] && die "AGENT_ROLE is not set"
+[ -z "${TASK_ID}" ]    && die "TASK_ID is not set"
 
-TASK_ID="${TASK_ID:-}"
-[ -z "$TASK_ID" ] && die "TASK_ID is not set"
-
-MEMORY_PATH="${MEMORY_PATH:-/memory}"
-MEMORY_BASE="${MEMORY_PATH}/tasks/${TASK_ID}"
 AGENT_TIMEOUT="${AGENT_TIMEOUT:-300}"
 AGENT_MAX_TURNS="${AGENT_MAX_TURNS:-10}"
 
@@ -85,14 +96,11 @@ if p.exists():
 " 2>/dev/null || true
 
 # ── Telemetry: record agent completion and archive if final ───────────────────
-# Call with: _record_completion <agent_status>
-# agent_status: success | failed | timeout
-# Archives task.json to /memory/telemetry/ when:
-#   - ops completes successfully (pipeline done)
-#   - any agent fails or times out (pipeline aborted)
+# Call with: _record_completion <agent_status> [exit_code]
 
 _record_completion() {
   local agent_status="$1"
+  local exit_code="${2:-0}"
   local end_ts end_dur
   end_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   end_dur=$(( $(date +%s) - _START_EPOCH ))
@@ -106,14 +114,15 @@ if not p.exists():
     exit(0)
 d = json.loads(p.read_text())
 
-# Update this agent's entry
-d.setdefault('agents', {}).setdefault('${AGENT_ROLE}', {}).update({
+entry = d.setdefault('agents', {}).setdefault('${AGENT_ROLE}', {})
+entry.update({
     'completed_at': '$end_ts',
     'duration_seconds': $end_dur,
     'status': '$agent_status',
+    'exit_code': $exit_code,
+    'log': 'logs/${AGENT_ROLE}-entrypoint.log',
 })
 
-# Archive on final agent (ops success) or any failure
 is_final = '${AGENT_ROLE}' == 'ops' or '$agent_status' != 'success'
 if is_final:
     task_status = 'completed' if '$agent_status' == 'success' else 'failed'
@@ -136,8 +145,6 @@ p.write_text(json.dumps(d, indent=2))
 }
 
 # ── Find the trigger payload ──────────────────────────────────────────────────
-# Architect reads from MEMORY_BASE/inbox/ (written by the dispatcher)
-# All other agents read from MEMORY_BASE/queue/<role>.json (written by previous agent)
 
 PAYLOAD_FILE=""
 
@@ -147,8 +154,6 @@ if [ "$AGENT_ROLE" = "architect" ]; then
 else
   PAYLOAD_FILE="${MEMORY_BASE}/queue/${AGENT_ROLE}.json"
   if [ ! -f "$PAYLOAD_FILE" ]; then
-    # Queue-watcher moves the trigger to queue/active/ before dispatching the
-    # event so the file survives pod scheduling and image pull delays.
     PAYLOAD_FILE="${MEMORY_BASE}/queue/active/${AGENT_ROLE}.json"
     [ -f "$PAYLOAD_FILE" ] || die "No trigger file found at queue/${AGENT_ROLE}.json or queue/active/${AGENT_ROLE}.json"
     log "Reading trigger from active/: $PAYLOAD_FILE"
@@ -159,10 +164,6 @@ log "Reading payload from: $PAYLOAD_FILE"
 PAYLOAD=$(cat "$PAYLOAD_FILE")
 
 # ── Mock mode ─────────────────────────────────────────────────────────────────
-# When AGENT_MOCK=true the Claude invocation is skipped entirely. Each role
-# writes pre-canned fixture files and the appropriate trigger, exercising the
-# full infrastructure chain (dispatch → job creation → NFS I/O → queue-watcher
-# → chaining) at zero token cost.
 
 if [ "${AGENT_MOCK:-false}" = "true" ]; then
   log "MOCK MODE — writing fixture output, skipping Claude"
@@ -231,24 +232,18 @@ Task: ${TASK}
 Result: Fixture written, trigger sent (if applicable).
 EOF
 
-  # Clean up consumed trigger file (non-architect only)
   if [ "$AGENT_ROLE" != "architect" ] && [ -f "$PAYLOAD_FILE" ]; then
     rm -f "$PAYLOAD_FILE" 2>/dev/null \
       && log "Consumed trigger file: $PAYLOAD_FILE" \
       || log "Warning: could not remove trigger file $PAYLOAD_FILE (non-fatal)"
   fi
 
-  _record_completion "success"
+  _record_completion "success" 0
   log "Mock run complete"
   exit 0
 fi
 
 # ── Configure MCP servers ─────────────────────────────────────────────────────
-# Read mcpServers array from the trigger payload. For each named server, look up
-# MCP_<NAME>_URL (injected by Helm when the server is enabled in values.yaml) and
-# write ~/.claude/settings.json so Claude Code connects at startup.
-# The architect controls per-agent access by listing servers in each queue file.
-# See ADR-011.
 
 MCP_SERVERS=$(python3 -c "
 import json, sys
@@ -289,13 +284,11 @@ if mcp_config:
     with open(settings_path, 'w') as f:
         json.dump(existing, f, indent=2)
     print('[entrypoint] MCP configured: ' + str(list(mcp_config.keys())), flush=True)
+    print('[entrypoint] settings.json: ' + json.dumps(existing), flush=True)
 PYEOF
 fi
 
-# ── Configure git for GitHub ─────────────────────────────────────────────────
-# When GITHUB_TOKEN is injected (mcp.servers.github.enabled), configure git so
-# that 'git clone/push https://github.com/...' authenticates automatically.
-# Uses URL rewrite to avoid writing the token to a credential file.
+# ── Configure git for GitHub ──────────────────────────────────────────────────
 
 if [ -n "${GITHUB_TOKEN:-}" ]; then
   git config --global \
@@ -308,7 +301,6 @@ fi
 
 # ── Build the prompt ──────────────────────────────────────────────────────────
 
-# Global project context lives at /memory/CLAUDE.md (not task-scoped)
 PROJECT_CONTEXT_CONTENT=""
 if [ -f "${MEMORY_PATH}/CLAUDE.md" ]; then
   PROJECT_CONTEXT_CONTENT=$(cat "${MEMORY_PATH}/CLAUDE.md")
@@ -339,12 +331,10 @@ PROMPTEOF
 )
 
 # ── Run Claude Code ───────────────────────────────────────────────────────────
-# Claude Code reads /agent/CLAUDE.md automatically (WORKDIR is /agent).
-# That file contains memory layout, chaining rules, role descriptions,
-# and security rules — no need to repeat them in the prompt.
 
 log "Launching Claude Code..."
 
+CLAUDE_OUTPUT_LOG="${MEMORY_BASE}/logs/${AGENT_ROLE}-output-$(date -u +%Y%m%dT%H%M%S).log"
 PROMPT_FILE=$(mktemp /tmp/agent-prompt-XXXXXX.md)
 echo "$PROMPT" > "$PROMPT_FILE"
 
@@ -353,15 +343,25 @@ timeout "${AGENT_TIMEOUT}" claude \
   --print \
   --max-turns "${AGENT_MAX_TURNS}" \
   --dangerously-skip-permissions \
-  "$(cat "$PROMPT_FILE")" 2>&1 | tee "${MEMORY_BASE}/logs/${AGENT_ROLE}-output-$(date -u +%Y%m%dT%H%M%S).log" \
+  "$(cat "$PROMPT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_LOG" \
   || EXIT_CODE=$?
 
 rm -f "$PROMPT_FILE"
 
+log "Claude Code exited with code $EXIT_CODE"
+
+# On non-zero exit, copy last 30 lines of Claude output into the entrypoint log
+# so it's visible even after the pod is gone.
+if [ $EXIT_CODE -ne 0 ]; then
+  log "--- last 30 lines of Claude output ---"
+  tail -30 "$CLAUDE_OUTPUT_LOG" >> "$_LOG_FILE" 2>/dev/null || true
+  log "--- end of Claude output ---"
+fi
+
 # ── Handle completion ─────────────────────────────────────────────────────────
 
 if [ $EXIT_CODE -eq 0 ]; then
-  _record_completion "success"
+  _record_completion "success" 0
   log "Completed successfully"
   if [ "$AGENT_ROLE" != "architect" ] && [ -f "$PAYLOAD_FILE" ]; then
     rm -f "$PAYLOAD_FILE" 2>/dev/null \
@@ -369,10 +369,10 @@ if [ $EXIT_CODE -eq 0 ]; then
       || log "Warning: could not remove trigger file $PAYLOAD_FILE (NFS ownership — non-fatal)"
   fi
 elif [ $EXIT_CODE -eq 124 ]; then
-  _record_completion "timeout"
+  _record_completion "timeout" 124
   die "Timed out after ${AGENT_TIMEOUT}s"
 else
-  _record_completion "failed"
+  _record_completion "failed" "$EXIT_CODE"
   die "Claude Code exited with code $EXIT_CODE"
 fi
 
