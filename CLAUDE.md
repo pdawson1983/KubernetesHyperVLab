@@ -248,6 +248,9 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Credential auto-refresh script: scripts/refresh-credentials.sh checks expiresAt, runs claude auth login only if within 2h, recreates K8s secret (2026-05-10)
 - [x] Agent CronJob securityContext enforced at K8s level: runAsUser/runAsGroup/fsGroup/runAsNonRoot: true on all 5 agents via helper in _helpers.tpl (2026-05-10)
 - [x] Git repo integration: repoUrl in task payload flows to architect; coder clones, branches agentforge/<task-id>, pushes; ops creates PR; GITHUB_TOKEN injected into agent pods; git auth via URL rewrite in entrypoint.sh (2026-05-10, image 20260510-113504, mock 14/14)
+- [x] First real end-to-end pipeline run: architect→coder→tester→reviewer→ops all succeeded against pdawson1983/testrepo; PR #1 opened by ops via GitHub REST API; total duration 361s (2026-05-10)
+- [x] Per-agent maxTurns (architect:20 coder:50 tester:40 reviewer:25 ops:30); global.maxTurns=0 uses per-agent, --set global.maxTurns=N overrides all (2026-05-10)
+- [x] Persistent entrypoint logging: log() tees to NFS logs/<role>-entrypoint.log; exit_code in task.json; last 30 lines of Claude output appended on failure (2026-05-10, image 20260510-131545)
 
 ---
 
@@ -259,13 +262,13 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Control plane LVM verified — filesystem already 43G, 17% used, no expansion needed (2026-05-09)
 - [x] MCP extensibility pattern: GitHub MCP server deployed, running, mock 14/14 verified (2026-05-10, ADR-011)
 - [x] Git repo integration: repoUrl payload field, GITHUB_TOKEN injected, git URL rewrite in entrypoint.sh, branch naming agentforge/<task-id>, agent-base.md updated (2026-05-10)
-- [ ] Public repo push: ops agent opens GitHub PR via MCP server — agent instructions written, end-to-end with real repo not yet tested
-- [ ] CI/CD scope: pipeline currently runs locally on cluster; external CI/CD (GitHub Actions → webhook, or pipeline → Actions) is a future feature requiring per-task repo/workflow config
-- [ ] System self-improvement — `system.improve` event type routes to architect with this repo as the target; agents propose and implement changes to the pipeline itself, ops opens a PR
+- [x] Public repo push: ops created PR #1 on pdawson1983/testrepo via GitHub REST API (2026-05-10)
+- [ ] Observability + self-improvement data layer: Postgres DB (shared with web UI) stores structured per-run data — turns used, tools called, token counts, outcomes, agent decisions; feeds `system.improve` loop to refine agent-base.md and per-role CLAUDE.md files
+- [ ] System self-improvement loop: `system.improve` event routes to architect with this repo as target; ops opens a PR; data layer provides the signal for what to improve
 - [x] Phase 1 run telemetry: entrypoint.sh writes per-agent timing + status to task.json; completed/failed runs archived to /memory/telemetry/<task-id>.json (2026-05-09)
-- [ ] Phase 2 telemetry: Postgres backing store when web UI is built — query telemetry with SQL, replace JSON file reads; SQLite on NFS is viable interim if web UI arrives before Postgres
+- [ ] Build web UI + Postgres: task submission UI backed by Postgres; same DB used for observability queries and self-improvement analysis
 - [ ] Feedback-triggered rebuild: `pipeline.feedback` event accepts a structured observation, routes to architect to propose a fix through the full pipeline including image rebuild
-- [ ] Build web UI for task submission (MD upload + guided form)
+- [ ] CI/CD scope: external GitHub Actions → webhook integration (future)
 - [x] Agent CronJob securityContext: runAsUser/runAsGroup/fsGroup 1001, runAsNonRoot: true on all 5 agents (2026-05-10)
 - [x] Local registry working with TLS (self-signed CA, system trust store, containerd 2.2.1) — agents pull from 192.168.100.11:30500 (2026-05-09)
 - [ ] Add human approval gate between Reviewer and Ops

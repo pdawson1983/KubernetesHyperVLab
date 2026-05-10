@@ -13,16 +13,15 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 
 ## Backlog
 
-| Task                                               | Priority | Notes                                                                                                                     |
-| -------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
-| System self-improvement loop                       | Medium   | `system.improve` event type routes to architect with this repo as target; ops opens a PR. Add to TRIGGER_MAP.             |
-| Public repo push / GitHub PR                       | Medium   | Ops creates PR via GitHub MCP pull_requests toolset; agent instructions written; end-to-end with real repo not yet tested |
-| Post-run telemetry                                 | Medium   | Ops appends structured log (timing, success/fail) to /memory/telemetry/; meta-agent proposes tuning                       |
-| Validate WSL route persistence scheduled task      | Medium   | Route `192.168.100.0/24 via 172.24.240.1` drops on WSL restart; task exists but unverified                                |
-| Build web UI for task submission                   | Low      | MD upload + guided form → POST to webhook.k8s.local                                                                       |
-| Add human approval gate between Reviewer and Ops   | Low      | Queue-watcher currently auto-chains; needs a pause point                                                                  |
-| Add GitHub webhook integration                     | Low      | Real repo events → pipeline trigger                                                                                       |
-| Add Tekton for more complex pipeline orchestration | Low      | Current CronJob-as-template pattern has limits at scale                                                                   |
+| Task                                               | Priority | Notes                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Observability data layer (Postgres)                | High     | Postgres in-cluster stores per-run structured data: turns used, tools called, token counts, agent decisions, outcomes. Same DB used by web UI and self-improvement loop. Replaces JSON telemetry files. Loki+Grafana considered but deferred — Postgres covers both observability and web UI needs. |
+| System self-improvement loop                       | High     | `system.improve` event routes to architect with this repo as target; architect reads observability DB to identify inefficiencies in agent-base.md / CLAUDE.md files; ops opens a PR with proposed changes. Requires observability data layer first. Add to TRIGGER_MAP.                             |
+| Build web UI + Postgres                            | Medium   | Task submission UI (MD upload + guided form); Postgres backend shared with observability layer. Build together — same DB deployment covers both.                                                                                                                                                    |
+| Validate WSL route persistence scheduled task      | Medium   | Route `192.168.100.0/24 via 172.24.240.1` drops on WSL restart; task exists but unverified                                                                                                                                                                                                          |
+| Add human approval gate between Reviewer and Ops   | Low      | Queue-watcher currently auto-chains; needs a pause point                                                                                                                                                                                                                                            |
+| Add GitHub webhook integration                     | Low      | Real repo events → pipeline trigger                                                                                                                                                                                                                                                                 |
+| Add Tekton for more complex pipeline orchestration | Low      | Current CronJob-as-template pattern has limits at scale                                                                                                                                                                                                                                             |
 
 ---
 
@@ -70,6 +69,9 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 | Credential auto-refresh script | 2026-05-10 | scripts/refresh-credentials.sh — checks expiresAt, runs claude auth login only if within 2h threshold, recreates K8s secret |
 | Agent CronJob securityContext (runAsUser: 1001) | 2026-05-10 | Pod-level runAsUser/runAsGroup/fsGroup/runAsNonRoot added to all 5 agents via claude-agents.agentSecurityContext helper; mock 14/14 |
 | Git repo integration | 2026-05-10 | repoUrl flows through payload; GITHUB_TOKEN injected into agents; git URL rewrite in entrypoint.sh; branch naming agentforge/<task-id>; agent-base.md repo section; mock 14/14 |
+| First real end-to-end run (pdawson1983/testrepo) | 2026-05-10 | architect→coder→tester→reviewer→ops all succeeded; hello.py committed to branch agentforge/20260510-130541-c173; PR #1 opened; 361s total |
+| Per-agent maxTurns | 2026-05-10 | architect:20 coder:50 tester:40 reviewer:25 ops:30; global.maxTurns=0 uses per-agent values; fixes tester hitting 10-turn limit |
+| Persistent entrypoint logging | 2026-05-10 | log() tees to NFS logs/<role>-entrypoint.log; exit_code in task.json; last 30 lines of Claude output on failure; image 20260510-131545 |
 | Rotate GitHub PAT | 2026-05-10 | Done — token rotated by user |
 | MCP extensibility pattern — GitHub MCP server | 2026-05-10 | github-mcp-server v1.0.3 running in-cluster (HTTP :8080); entrypoint.sh wires mcpServers from queue file into ~/.claude/settings.json; mock 14/14 |
 | System diagrams (Mermaid) | 2026-05-10 | Four diagrams added to K8s HyperV Lab Documents/diagrams/: cluster topology, agent flow, MCP pattern, WSL connectivity |
