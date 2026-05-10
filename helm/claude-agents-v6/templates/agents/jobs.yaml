@@ -39,6 +39,7 @@ spec:
         spec:
           serviceAccountName: {{ .Values.rbac.serviceAccountName }}
           restartPolicy: Never
+          {{- include "claude-agents.agentSecurityContext" . | nindent 10 }}
           initContainers:
             - name: setup-memory
               image: busybox:1.36
@@ -93,6 +94,7 @@ spec:
         spec:
           serviceAccountName: {{ .Values.rbac.serviceAccountName }}
           restartPolicy: OnFailure
+          {{- include "claude-agents.agentSecurityContext" . | nindent 10 }}
           containers:
             - name: coder
               image: {{ include "claude-agents.agentImage" (dict "name" "claude-agent" "root" .) }}
@@ -137,6 +139,7 @@ spec:
         spec:
           serviceAccountName: {{ .Values.rbac.serviceAccountName }}
           restartPolicy: Never
+          {{- include "claude-agents.agentSecurityContext" . | nindent 10 }}
           containers:
             - name: reviewer
               image: {{ include "claude-agents.agentImage" (dict "name" "claude-agent" "root" .) }}
@@ -181,6 +184,7 @@ spec:
         spec:
           serviceAccountName: {{ .Values.rbac.serviceAccountName }}
           restartPolicy: Never
+          {{- include "claude-agents.agentSecurityContext" . | nindent 10 }}
           containers:
             - name: tester
               image: {{ include "claude-agents.agentImage" (dict "name" "claude-agent" "root" .) }}
@@ -225,6 +229,7 @@ spec:
         spec:
           serviceAccountName: {{ .Values.rbac.serviceAccountName }}
           restartPolicy: Never
+          {{- include "claude-agents.agentSecurityContext" . | nindent 10 }}
           containers:
             - name: ops
               image: {{ include "claude-agents.agentImage" (dict "name" "claude-agent" "root" .) }}

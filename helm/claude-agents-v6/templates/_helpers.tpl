@@ -108,6 +108,20 @@ resources:
 {{- end }}
 
 {{/*
+Pod-level securityContext applied to every agent pod.
+Enforces UID 1001 at the K8s layer, matching the agent user in the Dockerfile.
+fsGroup 1001 ensures NFS volume files are group-accessible by the agent user.
+runAsNonRoot is belt-and-suspenders — Claude Code also refuses to run as root.
+*/}}
+{{- define "claude-agents.agentSecurityContext" -}}
+securityContext:
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  runAsNonRoot: true
+{{- end }}
+
+{{/*
 MCP server environment variables injected into every agent container.
 Each enabled MCP server contributes MCP_<NAME>_URL and MCP_<NAME>_ENABLED.
 entrypoint.sh uses MCP_<NAME>_URL to build ~/.claude/settings.json for the

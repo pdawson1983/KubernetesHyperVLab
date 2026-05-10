@@ -15,7 +15,7 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 
 | Task | Priority | Notes |
 |------|----------|-------|
-| Add securityContext (runAsUser: 1001) to agent CronJob templates | Medium | agent user UID 1001 is set in Dockerfile but not enforced at K8s level |
+
 | System self-improvement loop | Medium | `system.improve` event type routes to architect with this repo as target; ops opens a PR. Add to TRIGGER_MAP. |
 | Git repo integration | Medium | Accept repo URL in task payload; coder clones into /memory/tasks/<id>/workspace/<repo>/ and pushes branch. Depends on GitHub MCP server |
 | Public repo push / GitHub PR | Medium | Ops agent opens a GitHub PR via GitHub MCP server. Depends on GitHub MCP server |
