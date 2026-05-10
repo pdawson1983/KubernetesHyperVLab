@@ -57,6 +57,8 @@ spec:
               env:
                 {{- include "claude-agents.agentEnv" . | nindent 16 }}
                 {{- include "claude-agents.mcpEnv" . | nindent 16 }}
+                - name: AGENT_MAX_TURNS
+                  value: {{ if .Values.global.maxTurns }}{{ .Values.global.maxTurns | quote }}{{ else }}{{ .Values.agents.architect.maxTurns | quote }}{{ end }}
                 - name: AGENT_TIMEOUT
                   value: {{ .Values.agents.architect.timeout | quote }}
                 - name: MAX_TOKENS
@@ -102,6 +104,8 @@ spec:
               env:
                 {{- include "claude-agents.agentEnv" . | nindent 16 }}
                 {{- include "claude-agents.mcpEnv" . | nindent 16 }}
+                - name: AGENT_MAX_TURNS
+                  value: {{ if .Values.global.maxTurns }}{{ .Values.global.maxTurns | quote }}{{ else }}{{ .Values.agents.coder.maxTurns | quote }}{{ end }}
                 - name: AGENT_TIMEOUT
                   value: {{ .Values.agents.coder.timeout | quote }}
                 - name: MAX_TOKENS
@@ -147,6 +151,8 @@ spec:
               env:
                 {{- include "claude-agents.agentEnv" . | nindent 16 }}
                 {{- include "claude-agents.mcpEnv" . | nindent 16 }}
+                - name: AGENT_MAX_TURNS
+                  value: {{ if .Values.global.maxTurns }}{{ .Values.global.maxTurns | quote }}{{ else }}{{ .Values.agents.reviewer.maxTurns | quote }}{{ end }}
                 - name: AGENT_TIMEOUT
                   value: {{ .Values.agents.reviewer.timeout | quote }}
                 - name: MAX_TOKENS
@@ -192,6 +198,8 @@ spec:
               env:
                 {{- include "claude-agents.agentEnv" . | nindent 16 }}
                 {{- include "claude-agents.mcpEnv" . | nindent 16 }}
+                - name: AGENT_MAX_TURNS
+                  value: {{ if .Values.global.maxTurns }}{{ .Values.global.maxTurns | quote }}{{ else }}{{ .Values.agents.tester.maxTurns | quote }}{{ end }}
                 - name: AGENT_TIMEOUT
                   value: {{ .Values.agents.tester.timeout | quote }}
                 - name: MAX_TOKENS
@@ -237,6 +245,8 @@ spec:
               env:
                 {{- include "claude-agents.agentEnv" . | nindent 16 }}
                 {{- include "claude-agents.mcpEnv" . | nindent 16 }}
+                - name: AGENT_MAX_TURNS
+                  value: {{ if .Values.global.maxTurns }}{{ .Values.global.maxTurns | quote }}{{ else }}{{ .Values.agents.ops.maxTurns | quote }}{{ end }}
                 - name: AGENT_TIMEOUT
                   value: {{ .Values.agents.ops.timeout | quote }}
                 - name: MAX_TOKENS

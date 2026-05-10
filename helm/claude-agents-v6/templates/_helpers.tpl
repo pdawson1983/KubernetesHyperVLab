@@ -53,8 +53,6 @@ Standard environment variables injected into every agent container
   value: /home/agent
 - name: CLAUDE_MODEL
   value: {{ .Values.global.model | quote }}
-- name: AGENT_MAX_TURNS
-  value: {{ .Values.global.maxTurns | quote }}
 - name: AGENT_MOCK
   value: {{ .Values.global.mockMode | quote }}
 - name: MEMORY_PATH

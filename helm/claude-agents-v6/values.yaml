@@ -20,9 +20,9 @@ global:
   # chain normally. Zero token cost — tests infrastructure only.
   # Enable via: helm upgrade ... --set global.mockMode=true
   mockMode: false
-  # maxTurns: maximum agentic turns per Claude invocation. Override for testing:
-  # helm upgrade ... --set global.maxTurns=3 --set global.model=claude-haiku-4-5-20251001
-  maxTurns: 10
+  # maxTurns: global override — set to N to cap all agents (e.g. for testing).
+  # 0 = use per-agent values defined under agents.<role>.maxTurns below.
+  maxTurns: 0
   image:
     # Push: podman push 192.168.100.11:30500/claude-agent:<tag> --tls-verify=false
     repository: 192.168.100.11:30500/claude-agent
@@ -77,6 +77,7 @@ agents:
       - "issue.opened"
       - "issue.labeled"
     maxTokens: 4096
+    maxTurns: 20
     timeout: 300
 
   coder:
@@ -84,6 +85,7 @@ agents:
     triggers:
       - "architect.complete"
     maxTokens: 8192
+    maxTurns: 50
     timeout: 600
 
   reviewer:
@@ -93,6 +95,7 @@ agents:
       - "pr.synchronize"
       - "tester.complete"
     maxTokens: 4096
+    maxTurns: 25
     timeout: 300
 
   tester:
@@ -100,6 +103,7 @@ agents:
     triggers:
       - "coder.complete"
     maxTokens: 4096
+    maxTurns: 40
     timeout: 600
 
   ops:
@@ -108,6 +112,7 @@ agents:
       - "reviewer.approved"
       - "deployment.requested"
     maxTokens: 2048
+    maxTurns: 30
     timeout: 600
 
 # ---------------------------------------------------------------------------
