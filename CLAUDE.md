@@ -389,11 +389,9 @@ cd KubernetesHyperVLab/helm/claude-agents-v6
 helm upgrade claude-agents . -n claude-agents
 
 # Refresh Claude.ai Max credentials (expire ~every 24h)
-claude auth login   # interactive, run in terminal
-kubectl delete secret claude-credentials -n claude-agents
-kubectl create secret generic claude-credentials \
-  --from-file=.credentials.json=$HOME/.claude/.credentials.json \
-  -n claude-agents
+./scripts/refresh-credentials.sh           # login only if expiring within 2h
+./scripts/refresh-credentials.sh --force   # always login
+./scripts/refresh-credentials.sh --check   # print expiry, no changes
 
 # Inspect a specific task run
 TASK_ID=<task-id>

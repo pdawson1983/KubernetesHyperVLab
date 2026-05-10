@@ -15,11 +15,8 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 
 | Task | Priority | Notes |
 |------|----------|-------|
-| Credential auto-refresh | High | Claude.ai OAuth tokens expire ~every 24h; need script to detect expiry and recreate K8s secret automatically |
-| Add securityContext (runAsUser: 1001) to dispatcher pod | High | Queue-watcher writes trigger files as root; agents (UID 1001) can't delete them. Fix: add fsGroup/runAsUser to dispatcher securityContext |
 | Add securityContext (runAsUser: 1001) to agent CronJob templates | Medium | agent user UID 1001 is set in Dockerfile but not enforced at K8s level |
 | System self-improvement loop | Medium | `system.improve` event type routes to architect with this repo as target; ops opens a PR. Add to TRIGGER_MAP. |
-| Rotate GitHub PAT | High | Token exposed in conversation transcript 2026-05-10; rotate at github.com/settings/tokens and update ~/.config/agentforge/github-token + K8s secret |
 | Git repo integration | Medium | Accept repo URL in task payload; coder clones into /memory/tasks/<id>/workspace/<repo>/ and pushes branch. Depends on GitHub MCP server |
 | Public repo push / GitHub PR | Medium | Ops agent opens a GitHub PR via GitHub MCP server. Depends on GitHub MCP server |
 | Post-run telemetry | Medium | Ops appends structured log (timing, success/fail) to /memory/telemetry/; meta-agent proposes tuning |
@@ -71,6 +68,9 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 | Local registry TLS (containerd 2.x) | 2026-05-09 | Self-signed CA, system trust store on all nodes, registry serves HTTPS; agents pull from 192.168.100.11:30500 |
 | Validate local registry after containerd fix | 2026-05-09 | Working after TLS setup + CA in system trust store; switched image repo in values.yaml |
 | Expand control plane LVM volume | 2026-05-09 | No action needed — LV already 17.3GB using full 20GB disk (no gap, unlike workers) |
+| Add securityContext to dispatcher pod (runAsUser: 1001) | 2026-05-09 | Done in commit 9fa1b57 — pod-level securityContext runAsUser/runAsGroup/fsGroup all 1001 |
+| Credential auto-refresh script | 2026-05-10 | scripts/refresh-credentials.sh — checks expiresAt, runs claude auth login only if within 2h threshold, recreates K8s secret |
+| Rotate GitHub PAT | 2026-05-10 | Done — token rotated by user |
 | MCP extensibility pattern — GitHub MCP server | 2026-05-10 | github-mcp-server v1.0.3 running in-cluster (HTTP :8080); entrypoint.sh wires mcpServers from queue file into ~/.claude/settings.json; mock 14/14 |
 | System diagrams (Mermaid) | 2026-05-10 | Four diagrams added to K8s HyperV Lab Documents/diagrams/: cluster topology, agent flow, MCP pattern, WSL connectivity |
 | System named AgentForge | 2026-05-10 | Name adopted for docs and diagrams; Helm release remains claude-agents internally |
