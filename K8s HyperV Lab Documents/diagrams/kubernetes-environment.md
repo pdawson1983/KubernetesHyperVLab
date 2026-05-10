@@ -10,33 +10,33 @@ graph TB
             subgraph CP["k8s-control  192.168.100.10  (4 GB RAM)"]
                 etcd["etcd"]
                 api["kube-apiserver"]
-                nfs["NFS Server\n/srv/nfs/k8s"]
+                nfs["NFS Server<br>/srv/nfs/k8s"]
                 flannel_cp["flannel"]
             end
 
             subgraph W1["k8s-worker1  192.168.100.11  (4 GB RAM)"]
-                registry["Registry\n:30500 NodePort"]
-                agent_pods_1["Agent Pods\n(architect / coder)"]
+                registry["Registry<br>:30500 NodePort"]
+                agent_pods_1["Agent Pods<br>(architect / coder)"]
                 flannel_w1["flannel"]
             end
 
             subgraph W2["k8s-worker2  192.168.100.12  (4 GB RAM)"]
-                dispatcher["Dispatcher Pod\n+ queue-watcher"]
-                agent_pods_2["Agent Pods\n(tester / reviewer / ops)"]
+                dispatcher["Dispatcher Pod<br>+ queue-watcher"]
+                agent_pods_2["Agent Pods<br>(tester / reviewer / ops)"]
                 flannel_w2["flannel"]
             end
         end
 
         subgraph Addons["Cluster Add-ons"]
-            metallb["MetalLB\n192.168.100.200–220"]
-            ingress["nginx-ingress\n192.168.100.200"]
+            metallb["MetalLB<br>192.168.100.200–220"]
+            ingress["nginx-ingress<br>192.168.100.200"]
             lpp["local-path-provisioner"]
         end
     end
 
     subgraph Storage["Persistent Storage"]
-        nfs_pvc["NFS PVC\nagent-memory 10Gi RWX\n/memory shared by all agents"]
-        reg_pvc["local-path PVC\nregistry 20Gi RWO"]
+        nfs_pvc["NFS PVC<br>agent-memory 10Gi RWX<br>/memory shared by all agents"]
+        reg_pvc["local-path PVC<br>registry 20Gi RWO"]
     end
 
     nfs -->|"serves"| nfs_pvc
