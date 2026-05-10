@@ -109,7 +109,7 @@ fi
 # ── Sync K8s secret ───────────────────────────────────────────────────────────
 
 log "Syncing $SECRET_NAME secret in namespace $NAMESPACE..."
-kubectl delete secret "$SECRET_NAME" -n "$NAMESPACE" --ignore-not-found -q
+kubectl delete secret "$SECRET_NAME" -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
 kubectl create secret generic "$SECRET_NAME" \
     --from-file=.credentials.json="$CREDS" \
     -n "$NAMESPACE"
