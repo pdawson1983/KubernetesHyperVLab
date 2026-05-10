@@ -34,7 +34,7 @@ MCP is the standard extensibility pattern for adding new capabilities to agents.
 - **Image tooling** is kept minimal — only what is truly universal (node, claude
   CLI, basic shell). External system interaction goes through MCP.
 - **GitHub MCP server** (`ghcr.io/github/github-mcp-server`) is the first
-  implementation, covering: repo clone/push, PR creation, issue reading.
+  implementation, covering: repo clone/push, PR creation, issue reading, repo create.
 - **MCP server deployment pattern**: each server gets a Deployment + ClusterIP
   Service in `claude-agents` namespace; URL injected into agent config as
   `http://<service>.<namespace>.svc.cluster.local:<port>/sse`.
@@ -52,3 +52,7 @@ MCP is the standard extensibility pattern for adding new capabilities to agents.
 - **Watch for:** Secrets for MCP servers (GitHub tokens, API keys) must be
   managed as K8s secrets and injected via env vars into MCP server pods, not
   into agent pods.
+- **GitHub PAT scopes (updated 2026-05-10):** The PAT used by the GitHub MCP
+  server requires: Contents (read/write), Pull requests (read/write), Issues
+  (read), Metadata (read). If agents need to create new repositories, also add
+  Administration (read/write) — this scope was added to the PAT on 2026-05-10.
