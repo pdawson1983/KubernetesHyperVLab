@@ -134,6 +134,11 @@ servers listed in the queue file's mcpServers array. See ADR-011.
   value: "http://{{ include "claude-agents.fullname" . }}-github-mcp.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.mcp.servers.github.port }}"
 - name: MCP_GITHUB_ENABLED
   value: "true"
+- name: GITHUB_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.mcp.servers.github.tokenSecret }}
+      key: GITHUB_TOKEN
 {{- end }}
 {{- end }}
 {{- end }}

@@ -292,6 +292,20 @@ if mcp_config:
 PYEOF
 fi
 
+# ── Configure git for GitHub ─────────────────────────────────────────────────
+# When GITHUB_TOKEN is injected (mcp.servers.github.enabled), configure git so
+# that 'git clone/push https://github.com/...' authenticates automatically.
+# Uses URL rewrite to avoid writing the token to a credential file.
+
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  git config --global \
+    "url.https://x-access-token:${GITHUB_TOKEN}@github.com/.insteadOf" \
+    "https://github.com/"
+  git config --global user.email "agentforge@cluster.local"
+  git config --global user.name "AgentForge"
+  log "Git configured for GitHub authentication"
+fi
+
 # ── Build the prompt ──────────────────────────────────────────────────────────
 
 # Global project context lives at /memory/CLAUDE.md (not task-scoped)

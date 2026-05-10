@@ -86,6 +86,64 @@ reviewer or tester queue files unless the task explicitly requires it.
 
 ---
 
+## Repository Integration
+
+When the task payload contains a `repoUrl` field, the pipeline operates on a
+real GitHub repository. The standard pattern:
+
+**Architect** — extract `repoUrl` from the payload. Pass it to the coder via
+the queue file. Grant the coder GitHub MCP access:
+
+```json
+{
+  "from": "architect",
+  "task": "implement feature X",
+  "output": "<task-memory-base>/specs/spec.md",
+  "repoUrl": "https://github.com/owner/repo",
+  "notes": "clone the repo, implement the spec, push a branch",
+  "mcpServers": ["github"]
+}
+```
+
+**Coder** — clone the repo, create a branch, implement the spec, push:
+
+```bash
+# Clone into workspace
+git clone <repoUrl> <task-memory-base>/workspace/<repo-name>/
+cd <task-memory-base>/workspace/<repo-name>/
+
+# Branch naming: agentforge/<task-id>
+git checkout -b agentforge/<task-id>
+
+# ... make changes ...
+
+git add -A
+git commit -m "<brief description of change>"
+git push origin agentforge/<task-id>
+```
+
+Pass the pushed branch and repo to ops:
+
+```json
+{
+  "from": "coder",
+  "repoUrl": "<repoUrl>",
+  "branch": "agentforge/<task-id>",
+  "notes": "branch pushed, ready for PR",
+  "mcpServers": ["github"]
+}
+```
+
+**Ops** — create the pull request using the GitHub MCP `pull_requests` toolset.
+The base branch is the repo's default branch. Title should summarise the change;
+body should reference the task ID and summarise what was done.
+
+**Git authentication** is handled automatically when `GITHUB_TOKEN` is injected
+— `git clone` and `git push` to `https://github.com/` work without any extra
+configuration.
+
+---
+
 ## Project Context
 
 Before starting work, check whether `/memory/CLAUDE.md` exists. If it does, read it —
@@ -123,13 +181,16 @@ Your `AGENT_ROLE` tells you your position in the pipeline and what your primary
 deliverable is. Each role has a distinct contribution — do yours fully before handing off.
 
 **architect** — Analyse the incoming request. Produce a clear spec in `<task-memory-base>/specs/`.
-Define what needs to be built, key interfaces, risks, and open questions. Optionally write
-a project `CLAUDE.md` into `<task-memory-base>/workspace/<project>/` to share conventions
-with downstream agents. Trigger the coder when done.
+Define what needs to be built, key interfaces, risks, and open questions. If the payload
+contains a `repoUrl`, include it in the coder's queue file and grant `mcpServers: ["github"]`.
+Optionally write a project `CLAUDE.md` into `<task-memory-base>/workspace/<project>/` to
+share conventions with downstream agents. Trigger the coder when done.
 
-**coder** — Read the architect's spec. Implement the described feature or fix in
+**coder** — Read the architect's spec. If a `repoUrl` is in the queue file, clone the repo
+into `<task-memory-base>/workspace/<repo-name>/`, create branch `agentforge/<task-id>`,
+implement the spec, commit, and push. Otherwise implement directly in
 `<task-memory-base>/workspace/`. Follow any `CLAUDE.md` found in the workspace directory.
-Trigger the tester when done.
+Pass the branch name and repoUrl to the tester and reviewer queue files. Trigger the tester when done.
 
 **tester** — Read the implementation in `<task-memory-base>/workspace/`. Write tests that
 cover the happy path, error paths, and edge cases. Put tests alongside the code or in a
@@ -139,10 +200,11 @@ cover the happy path, error paths, and edge cases. Put tests alongside the code 
 issues, missing coverage, and correctness. Write your findings to `<task-memory-base>/reviews/`.
 Trigger ops when the review passes.
 
-**ops** — Read the reviewer output and the implementation. Produce deployment artifacts
-in `<task-memory-base>/deployments/` — Kubernetes manifests, Helm values, or CI/CD config
-as appropriate. Write a deployment log entry summarising what was deployed and any manual
-steps required.
+**ops** — Read the reviewer output and the implementation. If a `repoUrl` and `branch` are
+in the queue file, create a GitHub pull request using the GitHub MCP `pull_requests` toolset
+(base: default branch, head: `agentforge/<task-id>`). Always produce deployment artifacts
+in `<task-memory-base>/deployments/` — Kubernetes manifests, Helm values, CI/CD config, or
+PR URL as appropriate. Write a deployment log entry summarising what was done.
 
 These descriptions are intentionally open. The task payload and any project `CLAUDE.md`
 in the workspace define the specifics. Use your judgement on approach — the role tells
