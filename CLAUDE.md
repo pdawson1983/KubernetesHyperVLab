@@ -89,8 +89,8 @@ KubernetesHyperVLab/
 
 **Release:** `claude-agents` in namespace `claude-agents`
 **Chart version:** 0.6.0
-**Revision:** 12
-**Image tag:** `20260510-024218` (pinned — update in values.yaml on each push)
+**Revision:** 20
+**Image tag:** `20260510-113504` (pinned — update in values.yaml on each push)
 **Image registry:** `192.168.100.11:30500` (local, HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
@@ -245,6 +245,9 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] System named AgentForge (2026-05-10)
 - [x] .claude/settings.json allowlist: kubectl get/logs/describe, helm template/list, aws read-only commands (2026-05-10)
 - [x] pipeline-test.sh --mock passing 14/14 with image 20260510-024218 (2026-05-10)
+- [x] Credential auto-refresh script: scripts/refresh-credentials.sh checks expiresAt, runs claude auth login only if within 2h, recreates K8s secret (2026-05-10)
+- [x] Agent CronJob securityContext enforced at K8s level: runAsUser/runAsGroup/fsGroup/runAsNonRoot: true on all 5 agents via helper in _helpers.tpl (2026-05-10)
+- [x] Git repo integration: repoUrl in task payload flows to architect; coder clones, branches agentforge/<task-id>, pushes; ops creates PR; GITHUB_TOKEN injected into agent pods; git auth via URL rewrite in entrypoint.sh (2026-05-10, image 20260510-113504, mock 14/14)
 
 ---
 
@@ -255,15 +258,15 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Tester timeout: bumped from 300s → 600s in values.yaml (2026-05-09)
 - [x] Control plane LVM verified — filesystem already 43G, 17% used, no expansion needed (2026-05-09)
 - [x] MCP extensibility pattern: GitHub MCP server deployed, running, mock 14/14 verified (2026-05-10, ADR-011)
-- [ ] Git repo integration: accept repo URL in task payload; coder clones into /memory/tasks/<task-id>/workspace/<repo>/ and pushes branch — depends on GitHub MCP server
-- [ ] Public repo push: ops agent opens GitHub PR via MCP server — depends on GitHub MCP server
+- [x] Git repo integration: repoUrl payload field, GITHUB_TOKEN injected, git URL rewrite in entrypoint.sh, branch naming agentforge/<task-id>, agent-base.md updated (2026-05-10)
+- [ ] Public repo push: ops agent opens GitHub PR via MCP server — agent instructions written, end-to-end with real repo not yet tested
 - [ ] CI/CD scope: pipeline currently runs locally on cluster; external CI/CD (GitHub Actions → webhook, or pipeline → Actions) is a future feature requiring per-task repo/workflow config
 - [ ] System self-improvement — `system.improve` event type routes to architect with this repo as the target; agents propose and implement changes to the pipeline itself, ops opens a PR
 - [x] Phase 1 run telemetry: entrypoint.sh writes per-agent timing + status to task.json; completed/failed runs archived to /memory/telemetry/<task-id>.json (2026-05-09)
 - [ ] Phase 2 telemetry: Postgres backing store when web UI is built — query telemetry with SQL, replace JSON file reads; SQLite on NFS is viable interim if web UI arrives before Postgres
 - [ ] Feedback-triggered rebuild: `pipeline.feedback` event accepts a structured observation, routes to architect to propose a fix through the full pipeline including image rebuild
 - [ ] Build web UI for task submission (MD upload + guided form)
-- [ ] Add securityContext (runAsUser: 1001) to agent CronJob templates
+- [x] Agent CronJob securityContext: runAsUser/runAsGroup/fsGroup 1001, runAsNonRoot: true on all 5 agents (2026-05-10)
 - [x] Local registry working with TLS (self-signed CA, system trust store, containerd 2.2.1) — agents pull from 192.168.100.11:30500 (2026-05-09)
 - [ ] Add human approval gate between Reviewer and Ops
 - [ ] Add Tekton for more complex pipeline orchestration
@@ -398,6 +401,17 @@ TASK_ID=<task-id>
 kubectl exec -n claude-agents \
   $(kubectl get pod -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
   -c dispatcher -- find /memory/tasks/${TASK_ID} -type f
+
+# Fire a task with a GitHub repo (git repo integration)
+PAYLOAD='{"event": "issue.opened", "title": "Add hello endpoint", "repoUrl": "https://github.com/owner/repo"}'
+SECRET=$(kubectl get secret webhook-secret -n claude-agents \
+  -o jsonpath='{.data.WEBHOOK_SECRET}' | base64 -d)
+SIG="sha256=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | cut -d' ' -f2)"
+curl -X POST http://webhook.k8s.local \
+  -H "Content-Type: application/json" \
+  -H "X-Event-Type: issue.opened" \
+  -H "X-Hub-Signature-256: $SIG" \
+  -d "$PAYLOAD"
 
 # Pipeline smoke test (zero tokens)
 cd KubernetesHyperVLab

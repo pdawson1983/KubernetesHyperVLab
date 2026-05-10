@@ -1,7 +1,7 @@
 # Helm Chart: claude-agents v6 (Active)
 
 **Version:** 0.6.0 | **Release name:** `claude-agents` | **Namespace:** `claude-agents`
-**Current revision:** 12 | **Image tag:** `20260510-024218`
+**Current revision:** 20 | **Image tag:** `20260510-113504`
 **Image registry:** `192.168.100.11:30500` (local HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
