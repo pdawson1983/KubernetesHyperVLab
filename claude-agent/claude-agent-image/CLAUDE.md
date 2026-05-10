@@ -51,7 +51,8 @@ and cache the image after first pull. Nodes trust the registry via the system CA
    - `architect` → most recent file in `$MEMORY_BASE/inbox/`
    - all others → `$MEMORY_BASE/queue/<role>.json` (falls back to `queue/active/<role>.json`)
 6. **If `AGENT_MOCK=true`:** write fixture files, write trigger file (to `$MEMORY_BASE/queue/`), exit 0
-7. Build prompt = role identity + **resolved MEMORY_BASE path** + payload + `/memory/CLAUDE.md` (if present)
+7. **MCP setup:** read `mcpServers` array from trigger payload; for each named server, look up `MCP_<NAME>_URL` env var and write `~/.claude/settings.json`. Skipped if array is absent or empty. See ADR-011.
+8. Build prompt = role identity + **resolved MEMORY_BASE path** + payload + `/memory/CLAUDE.md` (if present)
 8. Write prompt to tmpfile, run `timeout $AGENT_TIMEOUT claude --print --max-turns $AGENT_MAX_TURNS --dangerously-skip-permissions`
 9. Tee Claude output to `$MEMORY_BASE/logs/<role>-output-<timestamp>.log`
 10. On success: delete consumed trigger file (non-architect only). Exit 0 on success,
@@ -81,6 +82,8 @@ The prompt is kept minimal — role identity, payload, optional project context.
 | `AGENT_TIMEOUT` | `300` | CronJob template env (per-agent in values.yaml; tester=600s) |
 | `MEMORY_PATH` | `/memory` | NFS mount point; task-scoped base is `$MEMORY_PATH/tasks/$TASK_ID` |
 | `HOME` | `/home/agent` | Set explicitly so Claude Code finds credentials correctly |
+| `MCP_GITHUB_URL` | — | Injected by Helm when `mcp.servers.github.enabled: true`; SSE endpoint for GitHub MCP server |
+| `MCP_GITHUB_ENABLED` | — | Set to `"true"` by Helm alongside `MCP_GITHUB_URL` |
 
 ## Changing Agent Behaviour
 

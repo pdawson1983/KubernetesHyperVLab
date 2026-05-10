@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl get *)",
+      "Bash(kubectl logs *)",
+      "Bash(kubectl describe *)",
+      "Bash(kubectl rollout status *)",
+      "Bash(helm template *)",
+      "Bash(helm list *)",
+      "Bash(aws apprunner describe-service *)",
+      "Bash(aws apprunner list-services *)",
+      "Bash(aws apprunner list-operations *)",
+      "Bash(aws s3 ls *)",
+      "Bash(aws secretsmanager get-secret-value *)",
+      "Bash(aws iam list-attached-user-policies *)",
+      "Bash(aws logs get-log-events *)"
+    ]
+  }
+}

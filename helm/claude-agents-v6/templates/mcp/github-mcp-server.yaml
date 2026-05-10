@@ -1,0 +1,102 @@
+{{- if and .Values.mcp.enabled .Values.mcp.servers.github.enabled }}
+# =============================================================================
+# GitHub MCP Server
+# Runs the official github/github-mcp-server in SSE mode so all agent pods
+# can connect to it over HTTP without needing git/gh baked into the image.
+#
+# Requires the github-token secret to exist before enabling:
+#   kubectl create secret generic github-token \
+#     --from-literal=GITHUB_TOKEN=ghp_xxx -n claude-agents
+#
+# Agents activate this server by including "github" in the mcpServers array
+# of their queue file. entrypoint.sh reads that array and writes
+# ~/.claude/settings.json using the MCP_GITHUB_URL env var injected here.
+# See ADR-011.
+# =============================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-github-mcp
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: github-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.labels" . | nindent 8 }}
+        app.kubernetes.io/name: github-mcp-server
+        app.kubernetes.io/component: mcp-server
+    spec:
+      containers:
+        - name: github-mcp-server
+          image: {{ .Values.mcp.servers.github.image.repository }}:{{ .Values.mcp.servers.github.image.tag }}
+          imagePullPolicy: {{ .Values.mcp.servers.github.image.pullPolicy }}
+          {{- if .Values.mcp.servers.github.args }}
+          args:
+            {{- range .Values.mcp.servers.github.args }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: sse
+              containerPort: {{ .Values.mcp.servers.github.port }}
+              protocol: TCP
+          env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcp.servers.github.tokenSecret }}
+                  key: GITHUB_TOKEN
+            - name: PORT
+              value: {{ .Values.mcp.servers.github.port | quote }}
+          livenessProbe:
+            tcpSocket:
+              port: sse
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: sse
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: {{ .Values.mcp.servers.github.resources.requests.cpu }}
+              memory: {{ .Values.mcp.servers.github.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.mcp.servers.github.resources.limits.cpu }}
+              memory: {{ .Values.mcp.servers.github.resources.limits.memory }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-github-mcp
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: mcp-server
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: sse
+      port: {{ .Values.mcp.servers.github.port }}
+      targetPort: sse
+      protocol: TCP
+{{- end }}

@@ -64,6 +64,8 @@ KubernetesHyperVLab/
 │   │       │   └── registry.yaml     ← NodePort :30500, local-path PVC
 │   │       ├── storage/
 │   │       │   └── pvc.yaml          ← NFS PVC, ReadWriteMany
+│   │       ├── mcp/
+│   │       │   └── github-mcp-server.yaml ← GitHub MCP server Deployment + ClusterIP Service
 │   │       └── webhook/
 │   │           └── dispatcher.yaml   ← dispatcher + queue-watcher sidecar
 │   └── archive/                      ← v1-v5 kept for reference
@@ -86,17 +88,18 @@ KubernetesHyperVLab/
 ## Helm Chart State
 
 **Release:** `claude-agents` in namespace `claude-agents`
-**Chart version:** 0.5.0
-**Revision:** 69
-**Image tag:** `20260509-022526` (pinned — update in values.yaml on each push)
+**Chart version:** 0.6.0
+**Revision:** 12
+**Image tag:** `20260510-024218` (pinned — update in values.yaml on each push)
 **Image registry:** `192.168.100.11:30500` (local, HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
 ### What's Running
 
 ```
-deployment/claude-agents-claude-agents-webhook    1/1  Running  ← dispatcher + queue-watcher
-deployment/claude-agents-claude-agents-registry   1/1  Running  ← docker registry v2
+deployment/claude-agents-claude-agents-webhook      1/1  Running  ← dispatcher + queue-watcher
+deployment/claude-agents-claude-agents-registry     1/1  Running  ← docker registry v2
+deployment/claude-agents-claude-agents-github-mcp   1/1  Running  ← GitHub MCP server v1.0.3 :8080
 ```
 
 ### CronJobs (suspended templates)
@@ -236,6 +239,12 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Task metadata: task.json written per run with event, title, created_at, status (2026-05-09)
 - [x] Task ID returned in webhook HTTP 200 response body (2026-05-09)
 - [x] Tester agent timeout increased 300s → 600s (2026-05-09)
+- [x] MCP extensibility pattern: GitHub MCP server running in-cluster (ghcr.io/github/github-mcp-server v1.0.3, HTTP transport :8080); architect grants per-agent access via mcpServers array in queue files (2026-05-10, ADR-011)
+- [x] entrypoint.sh reads mcpServers from trigger payload, writes ~/.claude/settings.json before Claude Code starts (2026-05-10, image 20260510-024218)
+- [x] Mermaid diagrams: cluster topology, agent flow, MCP pattern, WSL connectivity (2026-05-10, K8s HyperV Lab Documents/diagrams/)
+- [x] System named AgentForge (2026-05-10)
+- [x] .claude/settings.json allowlist: kubectl get/logs/describe, helm template/list, aws read-only commands (2026-05-10)
+- [x] pipeline-test.sh --mock passing 14/14 with image 20260510-024218 (2026-05-10)
 
 ---
 
@@ -244,9 +253,10 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Task metadata registry: /memory/tasks/<task-id>/task.json written on creation (task_id, event, title, created_at, status) — queryable via kubectl exec (2026-05-09)
 - [x] Task ID in webhook response body: confirmed present as `task_id` field in HTTP 200 JSON (2026-05-09)
 - [x] Tester timeout: bumped from 300s → 600s in values.yaml (2026-05-09)
-- [ ] Expand control plane LVM volume (same 10GB gap as workers — see knowledge base)
-- [ ] Git repo integration: accept repo URL in task payload; coder clones into /memory/tasks/<task-id>/workspace/<repo>/ and pushes branch on completion
-- [ ] Public repo push: ops agent pushes branch/PR to GitHub at end of pipeline; requires git credentials secret + GitHub token
+- [x] Control plane LVM verified — filesystem already 43G, 17% used, no expansion needed (2026-05-09)
+- [x] MCP extensibility pattern: GitHub MCP server deployed, running, mock 14/14 verified (2026-05-10, ADR-011)
+- [ ] Git repo integration: accept repo URL in task payload; coder clones into /memory/tasks/<task-id>/workspace/<repo>/ and pushes branch — depends on GitHub MCP server
+- [ ] Public repo push: ops agent opens GitHub PR via MCP server — depends on GitHub MCP server
 - [ ] CI/CD scope: pipeline currently runs locally on cluster; external CI/CD (GitHub Actions → webhook, or pipeline → Actions) is a future feature requiring per-task repo/workflow config
 - [ ] System self-improvement — `system.improve` event type routes to architect with this repo as the target; agents propose and implement changes to the pipeline itself, ops opens a PR
 - [x] Phase 1 run telemetry: entrypoint.sh writes per-agent timing + status to task.json; completed/failed runs archived to /memory/telemetry/<task-id>.json (2026-05-09)
@@ -295,8 +305,17 @@ WEBHOOK_SECRET via HMAC. If the secret is empty, signing is skipped.
 (both relative to MEMORY_BASE). See ADR-004 in the knowledge base.
 
 **Worker LVM volumes** — Ubuntu installer left workers with 10GB LV on 20GB disks.
-Expanded online with `lvextend + resize2fs` (no downtime). Control plane likely
-has the same gap — expand proactively before it causes issues.
+Expanded online with `lvextend + resize2fs` (no downtime). Control plane confirmed
+fine (43G filesystem, 17% used — no gap).
+
+**GitHub PAT needs rotation (2026-05-10)** — the token was entered in a conversation
+transcript. Rotate at github.com/settings/tokens, then:
+```bash
+kubectl delete secret github-token -n claude-agents
+kubectl create secret generic github-token \
+  --from-literal=GITHUB_TOKEN="$(cat ~/.config/agentforge/github-token)" -n claude-agents
+```
+Token stored at `~/.config/agentforge/github-token` (mode 600, outside repo).
 
 **Task isolation implemented (2026-05-09)** — each run gets its own `/memory/tasks/<task-id>/`
 directory. TASK_ID is generated by the dispatcher, directories are pre-created with 0o777
@@ -399,4 +418,12 @@ kubectl create secret generic claude-credentials \
 # Test with mock mode via helm flag (without modifying values.yaml)
 helm upgrade claude-agents . -n claude-agents --set global.mockMode=true
 helm upgrade claude-agents . -n claude-agents  # restore defaults
+
+# GitHub MCP server — recreate token secret after PAT rotation
+kubectl delete secret github-token -n claude-agents
+kubectl create secret generic github-token \
+  --from-literal=GITHUB_TOKEN="$(cat ~/.config/agentforge/github-token)" -n claude-agents
+
+# Check GitHub MCP server health
+kubectl logs -n claude-agents -l app.kubernetes.io/name=github-mcp-server --tail=10
 ```

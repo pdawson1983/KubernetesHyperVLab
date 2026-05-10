@@ -55,6 +55,7 @@ spec:
               imagePullPolicy: {{ .Values.global.image.pullPolicy }}
               env:
                 {{- include "claude-agents.agentEnv" . | nindent 16 }}
+                {{- include "claude-agents.mcpEnv" . | nindent 16 }}
                 - name: AGENT_TIMEOUT
                   value: {{ .Values.agents.architect.timeout | quote }}
                 - name: MAX_TOKENS
@@ -98,6 +99,7 @@ spec:
               imagePullPolicy: {{ .Values.global.image.pullPolicy }}
               env:
                 {{- include "claude-agents.agentEnv" . | nindent 16 }}
+                {{- include "claude-agents.mcpEnv" . | nindent 16 }}
                 - name: AGENT_TIMEOUT
                   value: {{ .Values.agents.coder.timeout | quote }}
                 - name: MAX_TOKENS
@@ -141,6 +143,7 @@ spec:
               imagePullPolicy: {{ .Values.global.image.pullPolicy }}
               env:
                 {{- include "claude-agents.agentEnv" . | nindent 16 }}
+                {{- include "claude-agents.mcpEnv" . | nindent 16 }}
                 - name: AGENT_TIMEOUT
                   value: {{ .Values.agents.reviewer.timeout | quote }}
                 - name: MAX_TOKENS
@@ -184,6 +187,7 @@ spec:
               imagePullPolicy: {{ .Values.global.image.pullPolicy }}
               env:
                 {{- include "claude-agents.agentEnv" . | nindent 16 }}
+                {{- include "claude-agents.mcpEnv" . | nindent 16 }}
                 - name: AGENT_TIMEOUT
                   value: {{ .Values.agents.tester.timeout | quote }}
                 - name: MAX_TOKENS
@@ -227,6 +231,7 @@ spec:
               imagePullPolicy: {{ .Values.global.image.pullPolicy }}
               env:
                 {{- include "claude-agents.agentEnv" . | nindent 16 }}
+                {{- include "claude-agents.mcpEnv" . | nindent 16 }}
                 - name: AGENT_TIMEOUT
                   value: {{ .Values.agents.ops.timeout | quote }}
                 - name: MAX_TOKENS

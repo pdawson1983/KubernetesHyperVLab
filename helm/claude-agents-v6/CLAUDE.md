@@ -1,7 +1,7 @@
 # Helm Chart: claude-agents v6 (Active)
 
-**Version:** 0.5.0 | **Release name:** `claude-agents` | **Namespace:** `claude-agents`
-**Current revision:** 69 | **Image tag:** `20260509-022526`
+**Version:** 0.6.0 | **Release name:** `claude-agents` | **Namespace:** `claude-agents`
+**Current revision:** 12 | **Image tag:** `20260510-024218`
 **Image registry:** `192.168.100.11:30500` (local HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
@@ -21,6 +21,7 @@ templates/
 ├── storage/pvc.yaml      — NFS PVC (10Gi RWX); annotated keep-on-uninstall
 ├── ingress/ingress.yaml  — webhook only (registry uses NodePort :30500 directly)
 ├── registry/registry.yaml — docker registry v2, NodePort :30500, local-path PVC 20Gi
+├── mcp/github-mcp-server.yaml — GitHub MCP server Deployment + ClusterIP Service :8080
 └── webhook/dispatcher.yaml — 2-container Deployment: dispatcher (Python) + queue-watcher (bash)
 ```
 
@@ -67,6 +68,10 @@ To change event routing, edit `webhook/dispatcher.yaml` (the Python dict).
 | `registry.nodePort` | NodePort for registry (30500) |
 | `registry.tls.enabled` | `true` = mount TLS cert into registry pod (currently active) |
 | `registry.tls.secretName` | K8s secret name holding `tls.crt` + `tls.key` (default: `registry-tls`) |
+| `mcp.enabled` | Master switch for all MCP servers (default: `true`) |
+| `mcp.servers.github.enabled` | Deploy GitHub MCP server (default: `false`; requires `github-token` secret) |
+| `mcp.servers.github.tokenSecret` | K8s secret name for `GITHUB_TOKEN` (default: `github-token`) |
+| `mcp.servers.github.args` | CLI args for github-mcp-server; must be `["http", "--port", "8080"]` |
 
 **Note:** `agents.<role>.instructions` and `projectContext` no longer exist. Agent
 behaviour is governed by the image (`agent-base.md`), not Helm. See ADR-006.
@@ -106,6 +111,12 @@ kubectl create secret generic claude-credentials \
 # Always required:
 kubectl create secret generic webhook-secret \
   --from-literal=WEBHOOK_SECRET=your-secret -n claude-agents
+
+# GitHub MCP server (required when mcp.servers.github.enabled: true)
+# Token stored at ~/.config/agentforge/github-token (mode 600, outside repo)
+kubectl create secret generic github-token \
+  --from-literal=GITHUB_TOKEN="$(cat ~/.config/agentforge/github-token)" -n claude-agents
+# ⚠ Rotate PAT at github.com/settings/tokens if exposed in conversation transcript
 ```
 
 ## Storage Notes
@@ -131,6 +142,9 @@ kubectl get jobs -n claude-agents
 kubectl exec -n claude-agents \
   $(kubectl get pod -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
   -c dispatcher -- find /memory -type f
+
+# GitHub MCP server logs
+kubectl logs -n claude-agents -l app.kubernetes.io/name=github-mcp-server --tail=20
 
 # Pipeline smoke test
 cd ../.. && ./scripts/pipeline-test.sh --mock

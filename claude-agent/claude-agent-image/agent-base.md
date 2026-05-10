@@ -54,6 +54,38 @@ what the next agent needs to know:
 
 ---
 
+## Granting MCP Server Access to Agents
+
+MCP servers run in-cluster and give agents access to external systems (GitHub,
+etc.) without those tools being baked into the container image. Access is
+opt-in per agent per task — the architect controls it by including a
+`mcpServers` array in each queue file.
+
+```json
+{
+  "from": "architect",
+  "task": "implement feature X",
+  "output": "<task-memory-base>/specs/spec.md",
+  "notes": "coder needs GitHub access to clone the repo",
+  "mcpServers": ["github"]
+}
+```
+
+The agent runtime reads `mcpServers` from the trigger file and wires the named
+servers into `~/.claude/settings.json` before Claude Code starts. Agents whose
+queue file has no `mcpServers` key receive no MCP servers.
+
+**Available servers:**
+
+| Name | Provides | Typical users |
+|------|----------|---------------|
+| `github` | Repo clone/push, PR create, issue read | coder, ops |
+
+Only grant servers an agent actually needs for its task. Do not add `github` to
+reviewer or tester queue files unless the task explicitly requires it.
+
+---
+
 ## Project Context
 
 Before starting work, check whether `/memory/CLAUDE.md` exists. If it does, read it —

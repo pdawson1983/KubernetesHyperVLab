@@ -108,6 +108,23 @@ resources:
 {{- end }}
 
 {{/*
+MCP server environment variables injected into every agent container.
+Each enabled MCP server contributes MCP_<NAME>_URL and MCP_<NAME>_ENABLED.
+entrypoint.sh uses MCP_<NAME>_URL to build ~/.claude/settings.json for the
+servers listed in the queue file's mcpServers array. See ADR-011.
+*/}}
+{{- define "claude-agents.mcpEnv" -}}
+{{- if .Values.mcp.enabled }}
+{{- if .Values.mcp.servers.github.enabled }}
+- name: MCP_GITHUB_URL
+  value: "http://{{ include "claude-agents.fullname" . }}-github-mcp.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.mcp.servers.github.port }}"
+- name: MCP_GITHUB_ENABLED
+  value: "true"
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Full image reference for agent containers.
 Uses global.image.repository directly — no internal registry helper.
 Usage: include "claude-agents.agentImage" (dict "name" "claude-agent" "root" .)

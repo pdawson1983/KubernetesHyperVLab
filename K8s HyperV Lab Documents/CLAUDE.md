@@ -21,6 +21,7 @@ When you learn something important during a session, document it here. When a de
 |------|----------|
 | `k8s-hyperv-guide.md` | Full cluster setup guide: Hyper-V, Ubuntu VMs, kubeadm, Flannel, MetalLB, NFS, local-path |
 | `decisions/` | Architecture Decision Records (ADRs) — one file per decision |
+| `diagrams/` | Mermaid diagrams: cluster topology, agent flow, MCP pattern, WSL connectivity |
 | `runbooks/` | Step-by-step operational procedures |
 | `tasks.md` | Open tasks and backlog (persistent across sessions) |
 

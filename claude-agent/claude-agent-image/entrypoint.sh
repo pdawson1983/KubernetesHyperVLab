@@ -243,6 +243,55 @@ EOF
   exit 0
 fi
 
+# ── Configure MCP servers ─────────────────────────────────────────────────────
+# Read mcpServers array from the trigger payload. For each named server, look up
+# MCP_<NAME>_URL (injected by Helm when the server is enabled in values.yaml) and
+# write ~/.claude/settings.json so Claude Code connects at startup.
+# The architect controls per-agent access by listing servers in each queue file.
+# See ADR-011.
+
+MCP_SERVERS=$(python3 -c "
+import json, sys
+try:
+    with open('${PAYLOAD_FILE}') as f:
+        d = json.load(f)
+    json.dump(d.get('mcpServers', []), sys.stdout)
+except Exception:
+    sys.stdout.write('[]')
+")
+
+if [ "$MCP_SERVERS" != "[]" ] && [ -n "$MCP_SERVERS" ]; then
+  log "Configuring MCP servers: $MCP_SERVERS"
+  _MCP_SERVERS="$MCP_SERVERS" python3 << 'PYEOF'
+import json, os
+
+servers = json.loads(os.environ['_MCP_SERVERS'])
+url_map = {
+    'github': os.environ.get('MCP_GITHUB_URL', ''),
+}
+mcp_config = {}
+for name in servers:
+    url = url_map.get(name, '')
+    if url:
+        mcp_config[name] = {'type': 'http', 'url': url}
+    else:
+        print('[entrypoint] Warning: MCP server "' + name + '" requested but MCP_' + name.upper() + '_URL not set', flush=True)
+if mcp_config:
+    settings_path = os.path.join(os.environ.get('HOME', '/home/agent'), '.claude', 'settings.json')
+    existing = {}
+    try:
+        with open(settings_path) as f:
+            existing = json.load(f)
+    except Exception:
+        pass
+    existing['mcpServers'] = mcp_config
+    os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+    with open(settings_path, 'w') as f:
+        json.dump(existing, f, indent=2)
+    print('[entrypoint] MCP configured: ' + str(list(mcp_config.keys())), flush=True)
+PYEOF
+fi
+
 # ── Build the prompt ──────────────────────────────────────────────────────────
 
 # Global project context lives at /memory/CLAUDE.md (not task-scoped)
