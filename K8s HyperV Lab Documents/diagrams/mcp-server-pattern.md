@@ -11,9 +11,9 @@ graph TB
             EP["entrypoint.sh"]
             Settings["~/.claude/settings.json<br>{mcpServers: {github: {url: ...}}}"]
             Claude["claude --print"]
-            EP -->|"1. read mcpServers<br>   from queue file"| EP
-            EP -->|"2. write"| Settings
-            Settings -->|"3. loaded at startup"| Claude
+            EP -->|"read mcpServers<br>from queue file"| EP
+            EP -->|"write"| Settings
+            Settings -->|"loaded at startup"| Claude
         end
 
         subgraph MCP["MCP Servers (ClusterIP)"]
