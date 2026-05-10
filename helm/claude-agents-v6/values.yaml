@@ -26,7 +26,7 @@ global:
   image:
     # Push: podman push 192.168.100.11:30500/claude-agent:<tag> --tls-verify=false
     repository: 192.168.100.11:30500/claude-agent
-    tag: "20260510-131545"
+    tag: "20260510-212544"
     pullPolicy: IfNotPresent
   model: claude-sonnet-4-20250514
   resources:
@@ -223,6 +223,35 @@ mcp:
         limits:
           cpu: 200m
           memory: 128Mi
+
+# ---------------------------------------------------------------------------
+# Postgres — observability DB + web UI backend
+# Stores structured per-run data (pipeline_runs + agent_runs tables).
+# Requires the postgres-credentials secret before enabling:
+#   kubectl create secret generic postgres-credentials \
+#     --from-literal=POSTGRES_DB=agentforge \
+#     --from-literal=POSTGRES_USER=agentforge \
+#     --from-literal=POSTGRES_PASSWORD=changeme \
+#     -n claude-agents
+# ---------------------------------------------------------------------------
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  port: 5432
+  credentialsSecret: postgres-credentials
+  storage:
+    size: 5Gi
+    storageClass: "local-path"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 # ---------------------------------------------------------------------------
 # Network policy

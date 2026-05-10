@@ -1,0 +1,176 @@
+{{- if .Values.postgres.enabled }}
+# =============================================================================
+# Postgres — Observability DB + Web UI backend
+# Stores pipeline_runs and agent_runs records written by the observer sidecar.
+# Schema is applied on first start via /docker-entrypoint-initdb.d/.
+#
+# Requires postgres-credentials secret before enabling:
+#   kubectl create secret generic postgres-credentials \
+#     --from-literal=POSTGRES_DB=agentforge \
+#     --from-literal=POSTGRES_USER=agentforge \
+#     --from-literal=POSTGRES_PASSWORD=changeme \
+#     -n claude-agents
+# =============================================================================
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-postgres-init
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+data:
+  01-schema.sql: |
+    CREATE TABLE IF NOT EXISTS pipeline_runs (
+        task_id          VARCHAR(50)  PRIMARY KEY,
+        event            VARCHAR(100),
+        title            TEXT,
+        repo_url         TEXT,
+        created_at       TIMESTAMPTZ,
+        completed_at     TIMESTAMPTZ,
+        status           VARCHAR(20),
+        duration_seconds INTEGER,
+        failed_agent     VARCHAR(20)
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_runs (
+        id               SERIAL PRIMARY KEY,
+        task_id          VARCHAR(50) REFERENCES pipeline_runs(task_id) ON DELETE CASCADE,
+        role             VARCHAR(20) NOT NULL,
+        started_at       TIMESTAMPTZ,
+        completed_at     TIMESTAMPTZ,
+        duration_seconds INTEGER,
+        status           VARCHAR(20),
+        exit_code        INTEGER,
+        log_path         TEXT,
+        UNIQUE(task_id, role)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pr_status  ON pipeline_runs(status);
+    CREATE INDEX IF NOT EXISTS idx_pr_created ON pipeline_runs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_ar_task_id ON agent_runs(task_id);
+    CREATE INDEX IF NOT EXISTS idx_ar_role    ON agent_runs(role);
+    CREATE INDEX IF NOT EXISTS idx_ar_status  ON agent_runs(status);
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-postgres
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.postgres.storage.size }}
+  storageClassName: {{ .Values.postgres.storage.storageClass }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-postgres
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.labels" . | nindent 8 }}
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/component: database
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.postgres.port }}
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.credentialsSecret }}
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.credentialsSecret }}
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.credentialsSecret }}
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d
+          livenessProbe:
+            exec:
+              command: ["pg_isready"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: ["pg_isready"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: {{ .Values.postgres.resources.requests.cpu }}
+              memory: {{ .Values.postgres.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.postgres.resources.limits.cpu }}
+              memory: {{ .Values.postgres.resources.limits.memory }}
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: {{ include "claude-agents.fullname" . }}-postgres
+        - name: postgres-init
+          configMap:
+            name: {{ include "claude-agents.fullname" . }}-postgres-init
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-postgres
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: postgres
+      port: {{ .Values.postgres.port }}
+      targetPort: postgres
+      protocol: TCP
+{{- end }}

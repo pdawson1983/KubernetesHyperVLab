@@ -136,11 +136,12 @@ if is_final:
         d['duration_seconds'] = int((e - c).total_seconds())
     except Exception:
         pass
+    p.write_text(json.dumps(d, indent=2))
     tel = pathlib.Path('${MEMORY_PATH}/telemetry')
     tel.mkdir(parents=True, exist_ok=True)
     shutil.copy2(str(p), str(tel / (d.get('task_id', '${TASK_ID}') + '.json')))
-
-p.write_text(json.dumps(d, indent=2))
+else:
+    p.write_text(json.dumps(d, indent=2))
 " 2>/dev/null || true
 }
 

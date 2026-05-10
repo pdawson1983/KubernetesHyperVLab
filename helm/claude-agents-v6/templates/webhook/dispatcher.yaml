@@ -185,6 +185,7 @@ spec:
                           "task_id": task_id,
                           "event": event_type,
                           "title": payload.get("title", ""),
+                          "repo_url": payload.get("repoUrl", ""),
                           "created_at": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
                           "status": "running",
                         }
@@ -354,6 +355,132 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+
+        {{- if .Values.postgres.enabled }}
+        # ── Container 3: Observer ────────────────────────────────────────────
+        # Polls /memory/telemetry/ for completed task archives and imports them
+        # into Postgres (pipeline_runs + agent_runs tables).
+        - name: observer
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: "{{ include "claude-agents.fullname" . }}-postgres.{{ .Values.global.namespace }}.svc.cluster.local"
+            - name: PGPORT
+              value: {{ .Values.postgres.port | quote }}
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.credentialsSecret }}
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.credentialsSecret }}
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.credentialsSecret }}
+                  key: POSTGRES_PASSWORD
+            - name: OBSERVER_POLL_INTERVAL
+              value: "30"
+          volumeMounts:
+            - name: agent-memory
+              mountPath: /memory
+          command:
+            - python3
+            - -c
+            - |
+              import subprocess, sys, os
+              try:
+                  import pg8000.native
+              except ImportError:
+                  subprocess.check_call([sys.executable, '-m', 'pip', 'install',
+                      '--quiet', '--no-cache-dir', '--target', '/tmp/pypkgs', 'pg8000'])
+                  sys.path.insert(0, '/tmp/pypkgs')
+                  import pg8000.native
+
+              import json, pathlib, time, os, glob
+
+              TELEMETRY = pathlib.Path('/memory/telemetry')
+              IMPORTED  = TELEMETRY / 'imported'
+              POLL      = int(os.environ.get('OBSERVER_POLL_INTERVAL', '30'))
+
+              cfg = dict(
+                  host=os.environ['PGHOST'],
+                  port=int(os.environ.get('PGPORT', 5432)),
+                  database=os.environ['PGDATABASE'],
+                  user=os.environ['PGUSER'],
+                  password=os.environ['PGPASSWORD'],
+              )
+
+              def connect():
+                  return pg8000.native.Connection(**cfg)
+
+              conn = None
+              for attempt in range(30):
+                  try:
+                      conn = connect()
+                      print('[observer] connected to Postgres', flush=True)
+                      break
+                  except Exception as e:
+                      print('[observer] waiting for Postgres (' + str(attempt+1) + '/30): ' + str(e), flush=True)
+                      time.sleep(10)
+              else:
+                  print('[observer] could not connect after 5 min — exiting', flush=True)
+                  sys.exit(1)
+
+              IMPORTED.mkdir(parents=True, exist_ok=True)
+              print('[observer] watching ' + str(TELEMETRY) + ' every ' + str(POLL) + 's', flush=True)
+
+              while True:
+                  for f in glob.glob(str(TELEMETRY / '*.json')):
+                      path = pathlib.Path(f)
+                      try:
+                          d = json.loads(path.read_text())
+                          task_id = d.get('task_id', path.stem)
+                          try:
+                              conn.run(
+                                  'INSERT INTO pipeline_runs '
+                                  '(task_id,event,title,repo_url,created_at,completed_at,status,duration_seconds,failed_agent) '
+                                  'VALUES (:t,:e,:ti,:r,:ca,:co,:s,:d,:f) '
+                                  'ON CONFLICT (task_id) DO UPDATE SET '
+                                  'status=EXCLUDED.status,completed_at=EXCLUDED.completed_at,'
+                                  'duration_seconds=EXCLUDED.duration_seconds,failed_agent=EXCLUDED.failed_agent',
+                                  t=task_id, e=d.get('event'), ti=d.get('title'),
+                                  r=d.get('repo_url'), ca=d.get('created_at'),
+                                  co=d.get('completed_at'), s=d.get('status'),
+                                  d=d.get('duration_seconds'), f=d.get('failed_agent'),
+                              )
+                          except Exception:
+                              conn = connect()
+                              raise
+                          for role, a in d.get('agents', {}).items():
+                              conn.run(
+                                  'INSERT INTO agent_runs '
+                                  '(task_id,role,started_at,completed_at,duration_seconds,status,exit_code,log_path) '
+                                  'VALUES (:t,:r,:sa,:ca,:d,:s,:ec,:lp) '
+                                  'ON CONFLICT (task_id,role) DO UPDATE SET '
+                                  'status=EXCLUDED.status,completed_at=EXCLUDED.completed_at,'
+                                  'duration_seconds=EXCLUDED.duration_seconds,exit_code=EXCLUDED.exit_code',
+                                  t=task_id, r=role, sa=a.get('started_at'),
+                                  ca=a.get('completed_at'), d=a.get('duration_seconds'),
+                                  s=a.get('status'), ec=a.get('exit_code'), lp=a.get('log'),
+                              )
+                          path.rename(IMPORTED / path.name)
+                          print('[observer] imported ' + task_id, flush=True)
+                      except Exception as e:
+                          print('[observer] error processing ' + str(path) + ': ' + str(e), flush=True)
+                  time.sleep(POLL)
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+        {{- end }}
 
       volumes:
         - name: tools
