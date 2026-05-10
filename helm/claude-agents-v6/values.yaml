@@ -5,6 +5,8 @@
 # ---------------------------------------------------------------------------
 # Global settings
 # ---------------------------------------------------------------------------
+# fullnameOverride: agentforge   # uncomment to use a custom prefix for all resources
+
 global:
   namespace: claude-agents
   apiKeySecret: anthropic-api-key

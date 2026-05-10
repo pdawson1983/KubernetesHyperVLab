@@ -170,8 +170,8 @@ spec:
                     print("[dispatcher] event=" + str(event_type) + " agent=" + str(agent), flush=True)
 
                     if agent:
-                      job_name = RELEASE + "-claude-agents-" + agent + "-" + os.urandom(4).hex()
-                      source_job = "cronjob/" + RELEASE + "-claude-agents-" + agent
+                      job_name = RELEASE + "-" + agent + "-" + os.urandom(4).hex()
+                      source_job = "cronjob/" + RELEASE + "-" + agent
 
                       if agent == "architect":
                         task_id = datetime.utcnow().strftime('%Y%m%d-%H%M%S') + '-' + secrets.token_hex(2)

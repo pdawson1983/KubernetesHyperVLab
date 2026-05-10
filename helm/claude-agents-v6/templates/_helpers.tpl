@@ -11,10 +11,17 @@ Expand the chart name
 {{- end }}
 
 {{/*
-Full release name
+Full release name — deduplicates when release name already contains chart name.
+Supports fullnameOverride for explicit control (e.g. fullnameOverride: agentforge).
 */}}
 {{- define "claude-agents.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if contains .Chart.Name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
 {{- printf "%s-%s" .Release.Name .Chart.Name | trunc 63 | trimSuffix "-" }}
+{{- end }}
 {{- end }}
 
 {{/*
