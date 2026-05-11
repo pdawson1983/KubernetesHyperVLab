@@ -48,6 +48,22 @@ def sign(payload_bytes: bytes) -> str:
     return "sha256=" + hmac.new(WEBHOOK_SECRET, payload_bytes, hashlib.sha256).hexdigest()
 
 
+def fmt_cost(usd):
+    if not usd:
+        return "—"
+    if usd < 0.001:
+        return f"${usd:.4f}"
+    return f"${usd:.3f}"
+
+
+def fmt_tokens(n):
+    if not n:
+        return "—"
+    if n >= 1000:
+        return f"{n/1000:.1f}k"
+    return str(n)
+
+
 def fmt_duration(secs):
     if secs is None:
         return "—"
@@ -65,6 +81,9 @@ async def dashboard(request: Request):
     rows = await db.fetch("""
         SELECT r.task_id, r.title, r.repo_url, r.event, r.status,
                r.created_at, r.duration_seconds, r.failed_agent,
+               COALESCE(SUM(a.cost_usd), 0)       AS total_cost_usd,
+               COALESCE(SUM(a.tokens_input), 0)    AS total_tokens_in,
+               COALESCE(SUM(a.tokens_output), 0)   AS total_tokens_out,
                json_agg(
                    json_build_object('role', a.role, 'status', a.status)
                    ORDER BY a.started_at
@@ -81,6 +100,8 @@ async def dashboard(request: Request):
         t = dict(r)
         t["agents"] = json.loads(t["agents"]) if t["agents"] else []
         t["duration_fmt"] = fmt_duration(t["duration_seconds"])
+        t["cost_fmt"] = fmt_cost(float(t["total_cost_usd"] or 0))
+        t["tokens_fmt"] = fmt_tokens((t["total_tokens_in"] or 0) + (t["total_tokens_out"] or 0))
         tasks.append(t)
     return templates.TemplateResponse("dashboard.html", {"request": request, "tasks": tasks})
 
@@ -99,10 +120,16 @@ async def task_detail(request: Request, task_id: str):
         db_agents = await db.fetch(
             "SELECT * FROM agent_runs WHERE task_id=$1 ORDER BY started_at", task_id
         )
+        total_cost = 0.0
         for a in db_agents:
             d = dict(a)
             d["duration_fmt"] = fmt_duration(d.get("duration_seconds"))
+            d["cost_fmt"] = fmt_cost(float(d.get("cost_usd") or 0))
+            d["tokens_in_fmt"] = fmt_tokens(d.get("tokens_input") or 0)
+            d["tokens_out_fmt"] = fmt_tokens(d.get("tokens_output") or 0)
+            total_cost += float(d.get("cost_usd") or 0)
             agent_list.append(d)
+        run["total_cost_fmt"] = fmt_cost(total_cost)
     else:
         # Task still running — read live from dispatcher NFS proxy
         live = True
@@ -142,7 +169,11 @@ async def task_detail(request: Request, task_id: str):
                     "exit_code":        a.get("exit_code"),
                     "log_path":         a.get("log"),
                     "started_at":       _dt(a.get("started_at")),
+                    "cost_fmt":         fmt_cost(float(a.get("cost_usd") or 0)),
+                    "tokens_in_fmt":    fmt_tokens(a.get("tokens_input") or 0),
+                    "tokens_out_fmt":   fmt_tokens(a.get("tokens_output") or 0),
                 })
+            run["total_cost_fmt"] = "—"
             agent_list.sort(key=lambda x: x.get("started_at") or datetime.min.replace(tzinfo=timezone.utc))
         except Exception as e:
             return HTMLResponse(f"Task not found ({e})", status_code=404)

@@ -13,6 +13,8 @@
         <th>Status</th>
         <th>Chain</th>
         <th>Duration</th>
+        <th>Tokens</th>
+        <th>Cost</th>
         <th>Started</th>
       </tr>
     </thead>
@@ -40,6 +42,8 @@
           </div>
         </td>
         <td class="mono">{{ t.duration_fmt }}</td>
+        <td class="mono">{{ t.tokens_fmt }}</td>
+        <td class="mono">{{ t.cost_fmt }}</td>
         <td class="meta">
           {% if t.created_at %}
           {{ t.created_at.strftime('%m-%d %H:%M') }}

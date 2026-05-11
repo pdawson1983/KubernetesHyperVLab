@@ -549,14 +549,23 @@ spec:
                           for role, a in d.get('agents', {}).items():
                               conn.run(
                                   'INSERT INTO agent_runs '
-                                  '(task_id,role,started_at,completed_at,duration_seconds,status,exit_code,log_path) '
-                                  'VALUES (:t,:r,:sa,:ca,:d,:s,:ec,:lp) '
+                                  '(task_id,role,started_at,completed_at,duration_seconds,status,exit_code,log_path,'
+                                  'tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,cost_usd,num_turns) '
+                                  'VALUES (:t,:r,:sa,:ca,:d,:s,:ec,:lp,:ti,:to,:tcr,:tcc,:cu,:nt) '
                                   'ON CONFLICT (task_id,role) DO UPDATE SET '
                                   'status=EXCLUDED.status,completed_at=EXCLUDED.completed_at,'
-                                  'duration_seconds=EXCLUDED.duration_seconds,exit_code=EXCLUDED.exit_code',
+                                  'duration_seconds=EXCLUDED.duration_seconds,exit_code=EXCLUDED.exit_code,'
+                                  'tokens_input=EXCLUDED.tokens_input,tokens_output=EXCLUDED.tokens_output,'
+                                  'tokens_cache_read=EXCLUDED.tokens_cache_read,'
+                                  'tokens_cache_creation=EXCLUDED.tokens_cache_creation,'
+                                  'cost_usd=EXCLUDED.cost_usd,num_turns=EXCLUDED.num_turns',
                                   t=task_id, r=role, sa=a.get('started_at'),
                                   ca=a.get('completed_at'), d=a.get('duration_seconds'),
                                   s=a.get('status'), ec=a.get('exit_code'), lp=a.get('log'),
+                                  ti=a.get('tokens_input', 0), to=a.get('tokens_output', 0),
+                                  tcr=a.get('tokens_cache_read', 0),
+                                  tcc=a.get('tokens_cache_creation', 0),
+                                  cu=a.get('cost_usd', 0), nt=a.get('num_turns', 0),
                               )
                           path.rename(IMPORTED / path.name)
                           print('[observer] imported ' + task_id, flush=True)

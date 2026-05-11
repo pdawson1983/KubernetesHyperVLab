@@ -122,6 +122,22 @@ entry.update({
     'exit_code': $exit_code,
     'log': 'logs/${AGENT_ROLE}-entrypoint.log',
 })
+# Enrich with token/cost data from metrics.json if present
+metrics_path = pathlib.Path('${MEMORY_BASE}/logs/${AGENT_ROLE}-metrics.json')
+if metrics_path.exists():
+    try:
+        m = json.loads(metrics_path.read_text())
+        usage = m.get('usage', {})
+        entry.update({
+            'tokens_input':          usage.get('input_tokens', 0),
+            'tokens_output':         usage.get('output_tokens', 0),
+            'tokens_cache_read':     usage.get('cache_read_input_tokens', 0),
+            'tokens_cache_creation': usage.get('cache_creation_input_tokens', 0),
+            'cost_usd':              m.get('total_cost_usd', 0),
+            'num_turns':             m.get('num_turns', 0),
+        })
+    except Exception:
+        pass
 
 is_final = '${AGENT_ROLE}' == 'ops' or '$agent_status' != 'success'
 if is_final:
@@ -339,23 +355,48 @@ PROMPTEOF
 log "Launching Claude Code..."
 
 CLAUDE_OUTPUT_LOG="${MEMORY_BASE}/logs/${AGENT_ROLE}-output-$(date -u +%Y%m%dT%H%M%S).log"
+CLAUDE_METRICS="${MEMORY_BASE}/logs/${AGENT_ROLE}-metrics.json"
 PROMPT_FILE=$(mktemp /tmp/agent-prompt-XXXXXX.md)
+CLAUDE_RAW=$(mktemp /tmp/claude-raw-XXXXXX.json)
 echo "$PROMPT" > "$PROMPT_FILE"
 
 EXIT_CODE=0
 timeout "${AGENT_TIMEOUT}" claude \
   --print \
+  --output-format json \
   --max-turns "${AGENT_MAX_TURNS}" \
   --dangerously-skip-permissions \
-  "$(cat "$PROMPT_FILE")" 2>&1 | tee "$CLAUDE_OUTPUT_LOG" \
+  "$(cat "$PROMPT_FILE")" > "$CLAUDE_RAW" 2>&1 \
   || EXIT_CODE=$?
 
 rm -f "$PROMPT_FILE"
 
+# Extract result text for the output log; save full JSON as metrics.
+# Falls back to raw content if output isn't valid JSON (e.g. auth error).
+_CLAUDE_RAW="$CLAUDE_RAW" _CLAUDE_OUTPUT_LOG="$CLAUDE_OUTPUT_LOG" \
+  _CLAUDE_METRICS="$CLAUDE_METRICS" python3 << 'PYEOF'
+import json, os, pathlib, sys
+
+raw_path   = os.environ['_CLAUDE_RAW']
+output_log = os.environ['_CLAUDE_OUTPUT_LOG']
+metrics    = os.environ['_CLAUDE_METRICS']
+
+raw = pathlib.Path(raw_path).read_text()
+try:
+    data = json.loads(raw)
+    result = data.get('result', '')
+    pathlib.Path(output_log).write_text(result)
+    pathlib.Path(metrics).write_text(raw)
+    print(result, flush=True)
+except Exception:
+    pathlib.Path(output_log).write_text(raw)
+    print(raw, flush=True)
+PYEOF
+
+rm -f "$CLAUDE_RAW"
+
 log "Claude Code exited with code $EXIT_CODE"
 
-# On non-zero exit, copy last 30 lines of Claude output into the entrypoint log
-# so it's visible even after the pod is gone.
 if [ $EXIT_CODE -ne 0 ]; then
   log "--- last 30 lines of Claude output ---"
   tail -30 "$CLAUDE_OUTPUT_LOG" >> "$_LOG_FILE" 2>/dev/null || true

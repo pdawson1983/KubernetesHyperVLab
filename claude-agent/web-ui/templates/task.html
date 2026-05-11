@@ -38,6 +38,10 @@
     <div style="font-weight:600;margin-top:4px;">{{ run.duration_fmt }}</div>
   </div>
   <div class="card">
+    <div class="meta">Total Cost</div>
+    <div style="font-weight:600;margin-top:4px;">{{ run.total_cost_fmt or '—' }}</div>
+  </div>
+  <div class="card">
     <div class="meta">Started</div>
     <div style="font-weight:600;margin-top:4px;">
       {% if run.created_at %}{{ run.created_at.strftime('%Y-%m-%d %H:%M:%S') }}{% else %}—{% endif %}
@@ -53,8 +57,11 @@
         <th>Role</th>
         <th>Status</th>
         <th>Duration</th>
-        <th>Exit Code</th>
-        <th>Log</th>
+        <th>Turns</th>
+        <th>Tokens In</th>
+        <th>Tokens Out</th>
+        <th>Cost</th>
+        <th>Exit</th>
         <th>Started</th>
       </tr>
     </thead>
@@ -64,11 +71,12 @@
         <td style="font-weight:600;text-transform:capitalize;">{{ a.role }}</td>
         <td><span class="badge {{ a.status }}">{{ a.status }}</span></td>
         <td class="mono">{{ a.duration_fmt }}</td>
+        <td class="mono">{{ a.num_turns or '—' }}</td>
+        <td class="mono">{{ a.tokens_in_fmt or '—' }}</td>
+        <td class="mono">{{ a.tokens_out_fmt or '—' }}</td>
+        <td class="mono">{{ a.cost_fmt or '—' }}</td>
         <td class="mono">
           {% if a.exit_code is not none %}{{ a.exit_code }}{% else %}—{% endif %}
-        </td>
-        <td class="mono" style="font-size:11px;">
-          {% if a.log_path %}{{ a.log_path }}{% else %}—{% endif %}
         </td>
         <td class="meta">
           {% if a.started_at %}{{ a.started_at.strftime('%H:%M:%S') }}{% else %}—{% endif %}

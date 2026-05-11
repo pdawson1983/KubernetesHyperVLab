@@ -36,17 +36,31 @@ data:
     );
 
     CREATE TABLE IF NOT EXISTS agent_runs (
-        id               SERIAL PRIMARY KEY,
-        task_id          VARCHAR(50) REFERENCES pipeline_runs(task_id) ON DELETE CASCADE,
-        role             VARCHAR(20) NOT NULL,
-        started_at       TIMESTAMPTZ,
-        completed_at     TIMESTAMPTZ,
-        duration_seconds INTEGER,
-        status           VARCHAR(20),
-        exit_code        INTEGER,
-        log_path         TEXT,
+        id                       SERIAL PRIMARY KEY,
+        task_id                  VARCHAR(50) REFERENCES pipeline_runs(task_id) ON DELETE CASCADE,
+        role                     VARCHAR(20) NOT NULL,
+        started_at               TIMESTAMPTZ,
+        completed_at             TIMESTAMPTZ,
+        duration_seconds         INTEGER,
+        status                   VARCHAR(20),
+        exit_code                INTEGER,
+        log_path                 TEXT,
+        tokens_input             INTEGER DEFAULT 0,
+        tokens_output            INTEGER DEFAULT 0,
+        tokens_cache_read        INTEGER DEFAULT 0,
+        tokens_cache_creation    INTEGER DEFAULT 0,
+        cost_usd                 NUMERIC(10,6) DEFAULT 0,
+        num_turns                INTEGER DEFAULT 0,
         UNIQUE(task_id, role)
     );
+
+    -- Idempotent migration: add token columns to existing installs
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS tokens_input          INTEGER DEFAULT 0;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS tokens_output         INTEGER DEFAULT 0;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS tokens_cache_read     INTEGER DEFAULT 0;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS tokens_cache_creation INTEGER DEFAULT 0;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS cost_usd              NUMERIC(10,6) DEFAULT 0;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS num_turns             INTEGER DEFAULT 0;
 
     CREATE INDEX IF NOT EXISTS idx_pr_status  ON pipeline_runs(status);
     CREATE INDEX IF NOT EXISTS idx_pr_created ON pipeline_runs(created_at);
