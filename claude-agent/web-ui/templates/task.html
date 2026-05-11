@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}{{ run.title or run.task_id }} — AgentForge{% endblock %}
+{% block content %}
+<div style="margin-bottom:16px;">
+  <a href="/" style="color:var(--muted);text-decoration:none;font-size:12px;">← Dashboard</a>
+</div>
+
+<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;">
+  <div>
+    <h1 style="margin-bottom:4px;">{{ run.title or run.task_id }}</h1>
+    {% if run.repo_url %}
+    <a href="{{ run.repo_url }}" class="repo-link" target="_blank">{{ run.repo_url }}</a>
+    {% endif %}
+    <br><span class="mono" style="font-size:11px;">{{ run.task_id }}</span>
+  </div>
+  <span class="badge {{ run.status or 'running' }}" style="font-size:13px;padding:4px 12px;">
+    {{ run.status or 'running' }}
+  </span>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;">
+  <div class="card">
+    <div class="meta">Event</div>
+    <div style="font-weight:600;margin-top:4px;">{{ run.event or '—' }}</div>
+  </div>
+  <div class="card">
+    <div class="meta">Duration</div>
+    <div style="font-weight:600;margin-top:4px;">{{ run.duration_fmt }}</div>
+  </div>
+  <div class="card">
+    <div class="meta">Started</div>
+    <div style="font-weight:600;margin-top:4px;">
+      {% if run.created_at %}{{ run.created_at.strftime('%Y-%m-%d %H:%M:%S') }}{% else %}—{% endif %}
+    </div>
+  </div>
+</div>
+
+<h2>Agent Chain</h2>
+<div class="card" style="padding:0;">
+  <table>
+    <thead>
+      <tr>
+        <th>Role</th>
+        <th>Status</th>
+        <th>Duration</th>
+        <th>Exit Code</th>
+        <th>Log</th>
+        <th>Started</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in agents %}
+      <tr>
+        <td style="font-weight:600;text-transform:capitalize;">{{ a.role }}</td>
+        <td><span class="badge {{ a.status }}">{{ a.status }}</span></td>
+        <td class="mono">{{ a.duration_fmt }}</td>
+        <td class="mono">
+          {% if a.exit_code is not none %}{{ a.exit_code }}{% else %}—{% endif %}
+        </td>
+        <td class="mono" style="font-size:11px;">
+          {% if a.log_path %}{{ a.log_path }}{% else %}—{% endif %}
+        </td>
+        <td class="meta">
+          {% if a.started_at %}{{ a.started_at.strftime('%H:%M:%S') }}{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% if not agents %}
+      <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px;">No agent data yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% if run.failed_agent %}
+<div class="card" style="margin-top:12px;border-color:#7f1d1d;">
+  <span style="color:var(--error);font-weight:600;">Failed at: {{ run.failed_agent }}</span>
+  <span class="meta" style="margin-left:12px;">Check <code style="font-size:11px;">logs/{{ run.failed_agent }}-entrypoint.log</code> in the task memory volume.</span>
+</div>
+{% endif %}
+{% endblock %}

@@ -4,10 +4,11 @@
 # Webhook only — registry uses NodePort directly to avoid TLS issues
 # with containerd image pulls.
 #
-# Webhook:  http://webhook.k8s.local → dispatcher :8080
+# Webhook:    http://webhook.k8s.local   → dispatcher :8080
+# Dashboard:  http://dashboard.k8s.local → web UI :8000
 #
 # Add to WSL /etc/hosts and Windows hosts file:
-#   192.168.100.200  webhook.k8s.local
+#   192.168.100.200  webhook.k8s.local dashboard.k8s.local
 # =============================================================================
 
 {{- if and .Values.webhook.enabled .Values.ingress.webhook.enabled }}
@@ -48,6 +49,35 @@ spec:
         - webhook.{{ .Values.ingress.domain }}
       secretName: {{ .Values.ingress.tls.secretName }}
   {{- end }}
+{{- end }}
+
+{{- if and .Values.webui.enabled .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webui
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webui
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-body-size: "5m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: dashboard.{{ .Values.ingress.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "claude-agents.fullname" . }}-webui
+                port:
+                  number: {{ .Values.webui.port }}
 {{- end }}
 
 {{- end }}

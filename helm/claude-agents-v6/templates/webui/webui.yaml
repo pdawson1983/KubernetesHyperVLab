@@ -1,0 +1,110 @@
+{{- if .Values.webui.enabled }}
+# =============================================================================
+# AgentForge Web UI
+# FastAPI + Jinja2 dashboard: task list, submit form, per-task detail,
+# approval gate (reviewer → ops pause).
+#
+# Ingress: dashboard.k8s.local (add to /etc/hosts: 192.168.100.200 dashboard.k8s.local)
+# Requires: postgres-credentials secret, webhook-secret secret
+# =============================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webui
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/name: webui
+    app.kubernetes.io/component: webui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webui
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "claude-agents.labels" . | nindent 8 }}
+        app.kubernetes.io/name: webui
+        app.kubernetes.io/component: webui
+    spec:
+      containers:
+        - name: webui
+          image: {{ .Values.webui.image.repository }}:{{ .Values.webui.image.tag }}
+          imagePullPolicy: {{ .Values.webui.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.webui.port }}
+              protocol: TCP
+          env:
+            - name: PGHOST
+              value: "{{ include "claude-agents.fullname" . }}-postgres.{{ .Values.global.namespace }}.svc.cluster.local"
+            - name: PGPORT
+              value: {{ .Values.postgres.port | quote }}
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.credentialsSecret }}
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.credentialsSecret }}
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.credentialsSecret }}
+                  key: POSTGRES_PASSWORD
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.webhook.secretName }}
+                  key: WEBHOOK_SECRET
+            - name: WEBHOOK_URL
+              value: "http://{{ include "claude-agents.fullname" . }}-webhook.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.webhook.port }}"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: {{ .Values.webui.resources.requests.cpu }}
+              memory: {{ .Values.webui.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.webui.resources.limits.cpu }}
+              memory: {{ .Values.webui.resources.limits.memory }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "claude-agents.fullname" . }}-webui
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "claude-agents.labels" . | nindent 4 }}
+    app.kubernetes.io/name: webui
+    app.kubernetes.io/component: webui
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: webui
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.webui.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

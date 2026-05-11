@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — AgentForge{% endblock %}
+{% block content %}
+<h1>Pipeline Runs</h1>
+
+{% if tasks %}
+<div class="card" style="padding:0;">
+  <table>
+    <thead>
+      <tr>
+        <th>Task</th>
+        <th>Status</th>
+        <th>Chain</th>
+        <th>Duration</th>
+        <th>Started</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in tasks %}
+      <tr>
+        <td>
+          <a href="/tasks/{{ t.task_id }}">{{ t.title or t.task_id }}</a>
+          {% if t.repo_url %}
+          <br><span class="repo-link">{{ t.repo_url.replace('https://github.com/', '') }}</span>
+          {% endif %}
+          <br><span class="mono">{{ t.task_id }}</span>
+        </td>
+        <td>
+          <span class="badge {{ t.status or 'running' }}">{{ t.status or 'running' }}</span>
+          {% if t.failed_agent %}
+          <br><span class="meta">failed: {{ t.failed_agent }}</span>
+          {% endif %}
+        </td>
+        <td>
+          <div class="chain">
+            {% for a in t.agents %}
+            <span class="chain-step {{ a.status }}">{{ a.role[:3] }}</span>
+            {% endfor %}
+          </div>
+        </td>
+        <td class="mono">{{ t.duration_fmt }}</td>
+        <td class="meta">
+          {% if t.created_at %}
+          {{ t.created_at.strftime('%m-%d %H:%M') }}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card" style="text-align:center; padding:40px; color:var(--muted);">
+  No runs yet. <a href="/submit">Submit a task</a> to get started.
+</div>
+{% endif %}
+{% endblock %}

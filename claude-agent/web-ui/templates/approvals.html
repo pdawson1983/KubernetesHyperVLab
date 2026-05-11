@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Approvals — AgentForge{% endblock %}
+{% block content %}
+<h1>Pending Approvals</h1>
+
+{% if pending %}
+<div style="margin-bottom:12px;font-size:13px;color:var(--muted);">
+  {{ pending|length }} task{{ 's' if pending|length != 1 }} awaiting your approval before ops runs.
+</div>
+
+{% for p in pending %}
+<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+  <div style="flex:1;">
+    <div style="font-weight:600;margin-bottom:4px;">
+      <a href="/tasks/{{ p.task_id }}">{{ p.title or p.task_id }}</a>
+    </div>
+    {% if p.repo_url %}
+    <div class="repo-link" style="margin-bottom:4px;">{{ p.repo_url }}</div>
+    {% endif %}
+    <div class="mono" style="font-size:11px;">{{ p.task_id }}</div>
+    {% if p.created_at %}
+    <div class="meta" style="margin-top:4px;">Waiting since {{ p.created_at }}</div>
+    {% endif %}
+  </div>
+  <div style="display:flex;gap:8px;flex-shrink:0;">
+    <a href="/tasks/{{ p.task_id }}" class="btn btn-sm"
+       style="background:var(--surface);color:var(--text);border:1px solid var(--border);">
+      View Review
+    </a>
+    <form method="post" action="/approvals/{{ p.task_id }}/approve" style="margin:0;">
+      <button type="submit" class="btn btn-success btn-sm">Approve → Ops</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="card" style="text-align:center;padding:40px;color:var(--muted);">
+  No pending approvals.
+  {% if not pending %}
+  <br><br>
+  <span style="font-size:12px;">
+    Approvals appear here when <code>webhook.approvalRequired: true</code>
+    is set in values.yaml and the reviewer completes a run.
+  </span>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:16px;border-color:var(--border);">
+  <div class="meta" style="margin-bottom:6px;">About approvals</div>
+  <div style="font-size:12px;color:var(--muted);line-height:1.8;">
+    When <code>webhook.approvalRequired: true</code>, the pipeline pauses after
+    the reviewer completes. Ops (deployment / PR creation) only fires after you
+    click Approve here. Set to <code>false</code> for fully automated runs.
+  </div>
+</div>
+{% endblock %}

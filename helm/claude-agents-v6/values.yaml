@@ -60,6 +60,8 @@ webhook:
   nodePort: 30080
   secretName: webhook-secret
   replicas: 1
+  # approvalRequired: pause pipeline at reviewer→ops; user approves via web UI
+  approvalRequired: false
   resources:
     requests:
       cpu: 100m
@@ -225,6 +227,26 @@ mcp:
         limits:
           cpu: 200m
           memory: 128Mi
+
+# ---------------------------------------------------------------------------
+# Web UI — FastAPI dashboard (task list, submit, task detail, approvals)
+# Ingress: dashboard.k8s.local
+# Add to /etc/hosts: 192.168.100.200 dashboard.k8s.local
+# ---------------------------------------------------------------------------
+webui:
+  enabled: true
+  image:
+    repository: 192.168.100.11:30500/agentforge-webui
+    tag: "latest"
+    pullPolicy: Always
+  port: 8000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 
 # ---------------------------------------------------------------------------
 # Postgres — observability DB + web UI backend

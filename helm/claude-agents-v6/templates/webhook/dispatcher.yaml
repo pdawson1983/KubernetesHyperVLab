@@ -81,6 +81,8 @@ spec:
               value: {{ .Release.Name }}
             - name: RESOURCE_PREFIX
               value: {{ include "claude-agents.fullname" . }}
+            - name: APPROVAL_REQUIRED
+              value: {{ .Values.webhook.approvalRequired | quote }}
             - name: PORT
               value: {{ .Values.webhook.port | quote }}
           volumeMounts:
@@ -99,11 +101,13 @@ spec:
               from subprocess import run
 
               SECRET = os.environ.get("WEBHOOK_SECRET", "").encode()
-              NAMESPACE = os.environ.get("NAMESPACE", "claude-agents")
+              NAMESPACE = os.environ.get("NAMESPACE", "agentforge")
               RELEASE = os.environ.get("RELEASE_NAME", "release")
               PREFIX = os.environ.get("RESOURCE_PREFIX", RELEASE)
               PORT = int(os.environ.get("PORT", 8080))
+              APPROVAL_REQUIRED = os.environ.get("APPROVAL_REQUIRED", "false").lower() == "true"
               MEMORY_PATH = pathlib.Path("/memory")
+              PENDING_APPROVALS = {}  # task_id → {task_id, payload, created_at}
 
               TRIGGER_MAP = {
                 "issue.opened":         "architect",
@@ -149,11 +153,51 @@ spec:
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
+                  elif self.path == "/pending":
+                    body = json.dumps(list(PENDING_APPROVALS.values())).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
                   else:
                     self.send_response(404)
                     self.end_headers()
 
                 def do_POST(self):
+                  # ── Approval gate: POST /approve/<task_id> ──────────────
+                  if self.path.startswith("/approve/"):
+                    task_id = self.path.split("/approve/", 1)[1].strip("/")
+                    if task_id in PENDING_APPROVALS:
+                      stored = PENDING_APPROVALS.pop(task_id)
+                      stored_payload = stored.get("payload", {})
+                      try:
+                        job_name = PREFIX + "-ops-" + os.urandom(4).hex()
+                        source_job = "cronjob/" + PREFIX + "-ops"
+                        create_agent_job(job_name, source_job, NAMESPACE, task_id)
+                        # Update task status
+                        meta = MEMORY_PATH / "tasks" / task_id / "task.json"
+                        if meta.exists():
+                          d = json.loads(meta.read_text())
+                          d["status"] = "running"
+                          meta.write_text(json.dumps(d, indent=2))
+                        print("[dispatcher] approved ops for task=" + task_id, flush=True)
+                        resp = json.dumps({"approved": task_id, "job": job_name}).encode()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(resp)))
+                        self.end_headers()
+                        self.wfile.write(resp)
+                      except Exception as e:
+                        print("[dispatcher] approval job creation failed: " + str(e), flush=True)
+                        self.send_response(500)
+                        self.end_headers()
+                    else:
+                      self.send_response(404)
+                      self.end_headers()
+                    return
+
+                  # ── Webhook events ───────────────────────────────────────
                   length = int(self.headers.get("Content-Length", 0))
                   body = self.rfile.read(length)
 
@@ -203,6 +247,30 @@ spec:
                           self.send_response(400)
                           self.end_headers()
                           return
+
+                      # Approval gate: hold ops until user approves via web UI
+                      if agent == "ops" and APPROVAL_REQUIRED:
+                        PENDING_APPROVALS[task_id] = {
+                          "task_id": task_id,
+                          "payload": payload,
+                          "created_at": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+                        }
+                        try:
+                          meta = MEMORY_PATH / "tasks" / task_id / "task.json"
+                          if meta.exists():
+                            d = json.loads(meta.read_text())
+                            d["status"] = "awaiting_approval"
+                            meta.write_text(json.dumps(d, indent=2))
+                        except Exception:
+                          pass
+                        print("[dispatcher] ops awaiting approval task=" + task_id, flush=True)
+                        resp = json.dumps({"awaiting_approval": task_id}).encode()
+                        self.send_response(202)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(resp)))
+                        self.end_headers()
+                        self.wfile.write(resp)
+                        return
 
                       print("[dispatcher] creating job=" + job_name + " task=" + task_id, flush=True)
                       try:
