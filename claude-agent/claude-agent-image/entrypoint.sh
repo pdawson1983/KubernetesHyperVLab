@@ -180,6 +180,64 @@ fi
 log "Reading payload from: $PAYLOAD_FILE"
 PAYLOAD=$(cat "$PAYLOAD_FILE")
 
+# ── Skip check ────────────────────────────────────────────────────────────────
+# Reads skip_agents from task.json (written by dispatcher from submit form).
+# Skippable roles: coder, tester, reviewer, ops.
+# Skipped agents write the next queue trigger and exit without calling Claude.
+
+_NEXT_ROLE=""
+case "$AGENT_ROLE" in
+  coder)    _NEXT_ROLE="tester" ;;
+  tester)   _NEXT_ROLE="reviewer" ;;
+  reviewer) _NEXT_ROLE="ops" ;;
+esac
+
+_IS_SKIPPED=$(python3 -c "
+import json, pathlib
+try:
+    p = pathlib.Path('${MEMORY_BASE}/task.json')
+    if p.exists():
+        d = json.loads(p.read_text())
+        skips = d.get('skip_agents', [])
+        print('yes' if '${AGENT_ROLE}' in skips else 'no')
+    else:
+        print('no')
+except Exception:
+    print('no')
+" 2>/dev/null || echo "no")
+
+if [ "$_IS_SKIPPED" = "yes" ]; then
+  log "Skipping agent ${AGENT_ROLE} (in skip_agents list)"
+
+  if [ -n "$_NEXT_ROLE" ]; then
+    TITLE=$(echo "$PAYLOAD" | python3 -c "import json,sys; print(json.load(sys.stdin).get('title',''))" 2>/dev/null || echo "")
+    printf '{"from":"%s","task":"%s","output":"(skipped)","notes":"%s was skipped by user","skipped":true}\n' \
+      "$AGENT_ROLE" "$TITLE" "$AGENT_ROLE" > "${MEMORY_BASE}/queue/${_NEXT_ROLE}.json"
+    log "Wrote skip-through trigger for ${_NEXT_ROLE}"
+  fi
+
+  python3 -c "
+import json, pathlib
+p = pathlib.Path('${MEMORY_BASE}/task.json')
+if p.exists():
+    d = json.loads(p.read_text())
+    d.setdefault('agents', {})['${AGENT_ROLE}'] = {
+        'status': 'skipped',
+        'skipped_at': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
+    }
+    p.write_text(json.dumps(d, indent=2))
+" 2>/dev/null || true
+
+  if [ -f "$PAYLOAD_FILE" ]; then
+    rm -f "$PAYLOAD_FILE" 2>/dev/null \
+      && log "Consumed trigger file: $PAYLOAD_FILE" \
+      || log "Warning: could not remove trigger file (non-fatal)"
+  fi
+
+  log "Agent ${AGENT_ROLE} skipped"
+  exit 0
+fi
+
 # ── Mock mode ─────────────────────────────────────────────────────────────────
 
 if [ "${AGENT_MOCK:-false}" = "true" ]; then

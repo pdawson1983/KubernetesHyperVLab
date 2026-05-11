@@ -30,6 +30,24 @@
     </div>
 
     <div class="form-group">
+      <label>Skip Agents <span style="color:var(--muted);font-weight:400;">(optional — selected agents are bypassed, pipeline chains through them)</span></label>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:6px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text);font-size:13px;font-weight:400;">
+          <input type="checkbox" name="skipAgents" value="coder" style="width:auto;accent-color:var(--accent);"> Coder
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text);font-size:13px;font-weight:400;">
+          <input type="checkbox" name="skipAgents" value="tester" style="width:auto;accent-color:var(--accent);"> Tester
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text);font-size:13px;font-weight:400;">
+          <input type="checkbox" name="skipAgents" value="reviewer" style="width:auto;accent-color:var(--accent);"> Reviewer
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text);font-size:13px;font-weight:400;">
+          <input type="checkbox" name="skipAgents" value="ops" style="width:auto;accent-color:var(--accent);"> Ops
+        </label>
+      </div>
+    </div>
+
+    <div class="form-group">
       <label for="context">
         Agent Instructions
         <span style="color:var(--muted);font-weight:400;">

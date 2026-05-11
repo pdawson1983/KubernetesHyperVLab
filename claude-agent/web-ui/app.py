@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import asyncpg
 import httpx
+from typing import List
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -235,12 +236,15 @@ async def submit_task(
     repo_url: str = Form(""),
     event: str = Form("issue.opened"),
     context: str = Form(""),
+    skipAgents: List[str] = Form(default=[]),
 ):
     payload = {"event": event, "title": title}
     if repo_url.strip():
         payload["repoUrl"] = repo_url.strip()
     if context.strip():
         payload["context"] = context.strip()
+    if skipAgents:
+        payload["skipAgents"] = skipAgents
     payload_bytes = json.dumps(payload).encode()
     sig = sign(payload_bytes)
     try:

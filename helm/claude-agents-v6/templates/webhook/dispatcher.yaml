@@ -262,6 +262,7 @@ spec:
                           "event": event_type,
                           "title": payload.get("title", ""),
                           "repo_url": payload.get("repoUrl", ""),
+                          "skip_agents": payload.get("skipAgents", []),
                           "created_at": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
                           "status": "running",
                         }
