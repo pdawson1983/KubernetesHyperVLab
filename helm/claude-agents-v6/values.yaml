@@ -5,7 +5,7 @@
 # ---------------------------------------------------------------------------
 # Global settings
 # ---------------------------------------------------------------------------
-# fullnameOverride: agentforge   # uncomment to use a custom prefix for all resources
+fullnameOverride: agentforge
 
 global:
   namespace: claude-agents
@@ -122,7 +122,7 @@ agents:
 # ---------------------------------------------------------------------------
 rbac:
   enabled: true
-  serviceAccountName: claude-agent
+  serviceAccountName: agentforge
 
 # ---------------------------------------------------------------------------
 # In-cluster container registry

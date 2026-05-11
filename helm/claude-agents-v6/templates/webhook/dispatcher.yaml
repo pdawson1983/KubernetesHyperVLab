@@ -79,6 +79,8 @@ spec:
               value: {{ .Values.global.namespace }}
             - name: RELEASE_NAME
               value: {{ .Release.Name }}
+            - name: RESOURCE_PREFIX
+              value: {{ include "claude-agents.fullname" . }}
             - name: PORT
               value: {{ .Values.webhook.port | quote }}
           volumeMounts:
@@ -99,6 +101,7 @@ spec:
               SECRET = os.environ.get("WEBHOOK_SECRET", "").encode()
               NAMESPACE = os.environ.get("NAMESPACE", "claude-agents")
               RELEASE = os.environ.get("RELEASE_NAME", "release")
+              PREFIX = os.environ.get("RESOURCE_PREFIX", RELEASE)
               PORT = int(os.environ.get("PORT", 8080))
               MEMORY_PATH = pathlib.Path("/memory")
 
@@ -170,8 +173,8 @@ spec:
                     print("[dispatcher] event=" + str(event_type) + " agent=" + str(agent), flush=True)
 
                     if agent:
-                      job_name = RELEASE + "-" + agent + "-" + os.urandom(4).hex()
-                      source_job = "cronjob/" + RELEASE + "-" + agent
+                      job_name = PREFIX + "-" + agent + "-" + os.urandom(4).hex()
+                      source_job = "cronjob/" + PREFIX + "-" + agent
 
                       if agent == "architect":
                         task_id = datetime.utcnow().strftime('%Y%m%d-%H%M%S') + '-' + secrets.token_hex(2)
