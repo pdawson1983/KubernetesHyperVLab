@@ -16,11 +16,10 @@
     </div>
 
     <div class="form-group">
-      <label for="event">Event Type</label>
+      <label for="event">Pipeline Mode</label>
       <select id="event" name="event">
-        <option value="issue.opened">issue.opened — feature / bug request</option>
-        <option value="issue.labeled">issue.labeled</option>
-        <option value="deployment.requested">deployment.requested</option>
+        <option value="issue.opened">Full pipeline — architect → coder → tester → reviewer → ops</option>
+        <option value="deployment.requested">Deploy only — skip straight to ops (code already ready)</option>
       </select>
     </div>
 
@@ -28,6 +27,33 @@
       <label for="repo_url">GitHub Repo URL <span style="color:var(--muted)">(optional — coder will clone)</span></label>
       <input type="url" id="repo_url" name="repo_url"
              placeholder="https://github.com/owner/repo">
+    </div>
+
+    <div class="form-group">
+      <label for="context">
+        Agent Instructions
+        <span style="color:var(--muted);font-weight:400;">
+          (optional — written as CLAUDE.md, read by all agents)
+        </span>
+      </label>
+      <textarea id="context" name="context" rows="8"
+        placeholder="Add any detail that should guide all agents, for example:
+
+## Constraints
+- Use Python 3.12, no external libraries beyond stdlib
+- Keep the script under 50 lines
+
+## Acceptance criteria
+- Output must be exactly: 10, 20, 30, ... 100
+- Must include a docstring
+
+## Do not
+- Create a class, use a plain function
+- Add argparse or CLI arguments"></textarea>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+        This content is saved as <code>/memory/tasks/&lt;id&gt;/CLAUDE.md</code> and injected into every agent's prompt.
+        Use it for constraints, acceptance criteria, tech preferences, or anything the agents should know.
+      </div>
     </div>
 
     <button type="submit" class="btn btn-primary">Launch Pipeline →</button>
@@ -38,9 +64,9 @@
   <div class="meta" style="margin-bottom:8px;">How it works</div>
   <div style="font-size:12px;color:var(--muted);line-height:1.8;">
     1. Webhook is HMAC-signed and posted to the dispatcher<br>
-    2. Architect analyses the request and writes a spec<br>
-    3. Coder clones the repo (if provided), creates branch <code>agentforge/&lt;task-id&gt;</code><br>
-    4. Tester and Reviewer validate the work<br>
+    2. If Agent Instructions are provided, they are written as <code>CLAUDE.md</code> in the task memory<br>
+    3. Architect analyses the request, reads CLAUDE.md, and writes a spec<br>
+    4. Coder, Tester, Reviewer, and Ops each read CLAUDE.md before starting work<br>
     5. Ops opens a GitHub PR (if a repo was provided)
   </div>
 </div>

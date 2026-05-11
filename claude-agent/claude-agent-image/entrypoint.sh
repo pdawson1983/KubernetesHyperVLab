@@ -303,9 +303,12 @@ fi
 # ── Build the prompt ──────────────────────────────────────────────────────────
 
 PROJECT_CONTEXT_CONTENT=""
-if [ -f "${MEMORY_PATH}/CLAUDE.md" ]; then
+if [ -f "${MEMORY_BASE}/CLAUDE.md" ]; then
+  PROJECT_CONTEXT_CONTENT=$(cat "${MEMORY_BASE}/CLAUDE.md")
+  log "Including task context from ${MEMORY_BASE}/CLAUDE.md"
+elif [ -f "${MEMORY_PATH}/CLAUDE.md" ]; then
   PROJECT_CONTEXT_CONTENT=$(cat "${MEMORY_PATH}/CLAUDE.md")
-  log "Including project context from ${MEMORY_PATH}/CLAUDE.md"
+  log "Including global context from ${MEMORY_PATH}/CLAUDE.md"
 fi
 
 PROMPT=$(cat << PROMPTEOF

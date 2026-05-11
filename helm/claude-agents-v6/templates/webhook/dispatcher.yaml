@@ -252,6 +252,12 @@ spec:
                         meta_file = task_base / "task.json"
                         meta_file.write_text(json.dumps(task_meta, indent=2))
                         os.chmod(str(meta_file), 0o666)
+                        context = payload.get("context", "").strip()
+                        if context:
+                          claude_md = task_base / "CLAUDE.md"
+                          claude_md.write_text(context)
+                          os.chmod(str(claude_md), 0o666)
+                          print("[dispatcher] task CLAUDE.md written for " + task_id, flush=True)
                         print("[dispatcher] task_id=" + task_id + " inbox written", flush=True)
                       else:
                         task_id = payload.get("task_id", "")

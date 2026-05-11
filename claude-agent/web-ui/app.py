@@ -51,6 +51,8 @@ def sign(payload_bytes: bytes) -> str:
 def fmt_duration(secs):
     if secs is None:
         return "—"
+    if secs == 0:
+        return "< 1s"
     if secs < 60:
         return f"{secs}s"
     return f"{secs // 60}m {secs % 60}s"
@@ -163,10 +165,13 @@ async def submit_task(
     title: str = Form(...),
     repo_url: str = Form(""),
     event: str = Form("issue.opened"),
+    context: str = Form(""),
 ):
     payload = {"event": event, "title": title}
     if repo_url.strip():
         payload["repoUrl"] = repo_url.strip()
+    if context.strip():
+        payload["context"] = context.strip()
     payload_bytes = json.dumps(payload).encode()
     sig = sign(payload_bytes)
     try:

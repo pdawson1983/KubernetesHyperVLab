@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ run.title or run.task_id }} — AgentForge{% endblock %}
+{% block head_extra %}
 {% if live or run.status in ('running', 'awaiting_approval') %}
 <meta http-equiv="refresh" content="5">
 {% endif %}
+{% endblock %}
 {% block content %}
 <div style="margin-bottom:16px;">
   <a href="/" style="color:var(--muted);text-decoration:none;font-size:12px;">← Dashboard</a>
