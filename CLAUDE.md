@@ -89,7 +89,7 @@ KubernetesHyperVLab/
 
 **Release:** `claude-agents` in namespace `agentforge`
 **Chart version:** 0.7.0
-**Revision:** (see helm list -n agentforge)
+**Revision:** 6
 **Image tag:** `20260510-212544` (pinned — update in values.yaml on each push)
 **Image registry:** `192.168.100.11:30500` (local, HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
@@ -253,6 +253,10 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] First real end-to-end pipeline run: architect→coder→tester→reviewer→ops all succeeded against pdawson1983/testrepo; PR #1 opened by ops via GitHub REST API; total duration 361s (2026-05-10)
 - [x] Per-agent maxTurns (architect:20 coder:50 tester:40 reviewer:25 ops:30); global.maxTurns=0 uses per-agent, --set global.maxTurns=N overrides all (2026-05-10)
 - [x] Persistent entrypoint logging: log() tees to NFS logs/<role>-entrypoint.log; exit_code in task.json; last 30 lines of Claude output appended on failure (2026-05-10, image 20260510-131545)
+- [x] Postgres observability DB: pipeline_runs + agent_runs tables; observer sidecar polls /memory/telemetry/ and imports completed runs; repo_url added to task.json; telemetry write-order bug fixed (2026-05-10, image 20260510-212544)
+- [x] Resource naming deduplicated: claude-agents-claude-agents-* → agentforge-* (fullnameOverride, RESOURCE_PREFIX env var for dispatcher, agentforge/role labels)
+- [x] Namespace migrated: claude-agents → agentforge; all scripts, docs, label selectors updated; mock 14/14 in agentforge namespace (2026-05-10)
+- [x] WSL route persistence validated: task WSL-K8s-Route confirmed working at logon; gap documented (mid-session restart workaround: schtasks.exe /Run /TN "\\WSL-K8s-Route")
 
 ---
 
@@ -265,7 +269,7 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] MCP extensibility pattern: GitHub MCP server deployed, running, mock 14/14 verified (2026-05-10, ADR-011)
 - [x] Git repo integration: repoUrl payload field, GITHUB_TOKEN injected, git URL rewrite in entrypoint.sh, branch naming agentforge/<task-id>, agent-base.md updated (2026-05-10)
 - [x] Public repo push: ops created PR #1 on pdawson1983/testrepo via GitHub REST API (2026-05-10)
-- [ ] Observability + self-improvement data layer: Postgres DB (shared with web UI) stores structured per-run data — turns used, tools called, token counts, outcomes, agent decisions; feeds `system.improve` loop to refine agent-base.md and per-role CLAUDE.md files
+- [x] Observability data layer: Postgres deployed, pipeline_runs + agent_runs tables, observer sidecar auto-imports telemetry files (2026-05-10)
 - [ ] System self-improvement loop: `system.improve` event routes to architect with this repo as target; ops opens a PR; data layer provides the signal for what to improve
 - [x] Phase 1 run telemetry: entrypoint.sh writes per-agent timing + status to task.json; completed/failed runs archived to /memory/telemetry/<task-id>.json (2026-05-09)
 - [ ] Build web UI + Postgres: task submission UI backed by Postgres; same DB used for observability queries and self-improvement analysis
@@ -301,8 +305,17 @@ TLS key material: `/tmp/registry-tls/` on WSL (not committed — regenerate if l
 (Feb 31 — never fires) and `suspend: true` as a permanent template source.
 The dispatcher uses `kubectl create job --from cronjob/` to spawn instances.
 
-**WSL route persistence** — the route `192.168.100.0/24 via 172.24.240.1`
-must be re-added after WSL restarts. Scheduled task exists but needs validation.
+**WSL route persistence (validated 2026-05-10)** — task `WSL-K8s-Route` runs at Windows
+logon and adds the route dynamically. Gap: doesn't fire on mid-session WSL restarts.
+Workaround: `schtasks.exe /Run /TN "\\WSL-K8s-Route"` from WSL.
+
+**registry-tls secret not persisted** — the `registry-tls` K8s secret is not in git and
+is lost on namespace migration. Recreate from `/tmp/registry-tls/` on WSL:
+```bash
+kubectl create secret tls registry-tls \
+  --cert=/tmp/registry-tls/tls.crt --key=/tmp/registry-tls/tls.key -n agentforge
+```
+If `/tmp/registry-tls/` is gone, regenerate with `scripts/node-setup/generate-registry-tls.sh`.
 
 **Queue-watcher signing** — the queue-watcher signs outbound events with
 WEBHOOK_SECRET via HMAC. If the secret is empty, signing is skipped.
@@ -443,4 +456,20 @@ kubectl create secret generic github-token \
 
 # Check GitHub MCP server health
 kubectl logs -n agentforge -l app.kubernetes.io/name=github-mcp-server --tail=10
+
+# Query Postgres observability DB
+kubectl exec -n agentforge \
+  $(kubectl get pod -n agentforge -l app.kubernetes.io/name=postgres -o name) \
+  -- psql -U agentforge -d agentforge -c \
+  "SELECT task_id, status, duration_seconds FROM pipeline_runs ORDER BY created_at DESC LIMIT 10;"
+
+# Per-agent timing averages
+kubectl exec -n agentforge \
+  $(kubectl get pod -n agentforge -l app.kubernetes.io/name=postgres -o name) \
+  -- psql -U agentforge -d agentforge -c \
+  "SELECT role, AVG(duration_seconds)::int avg_secs, COUNT(*) runs FROM agent_runs GROUP BY role ORDER BY role;"
+
+# Recreate registry-tls after namespace migration (if lost, regenerate with scripts/node-setup/generate-registry-tls.sh)
+kubectl create secret tls registry-tls \
+  --cert=/tmp/registry-tls/tls.crt --key=/tmp/registry-tls/tls.key -n agentforge
 ```
