@@ -55,7 +55,8 @@ and cache the image after first pull. Nodes trust the registry via the system CA
 8. **Git config:** if `GITHUB_TOKEN` is set, configure git URL rewrite so `git clone/push https://github.com/` authenticates automatically. Sets `AgentForge` as git user name/email.
 9. **Project context:** check `$MEMORY_BASE/CLAUDE.md` first (task-scoped, written by dispatcher from submit form context field); fall back to `/memory/CLAUDE.md` (global). Injected into all agents' prompts.
 10. Build prompt = role identity + **resolved MEMORY_BASE path** + payload + project context (if present)
-10. Write prompt to tmpfile, run `timeout $AGENT_TIMEOUT claude --print --max-turns $AGENT_MAX_TURNS --dangerously-skip-permissions`
+10. **Skip check:** read `skip_agents` from `task.json`; if current role is listed, write the next queue trigger and exit 0 without calling Claude. Skippable: coder, tester, reviewer, ops.
+11. Write prompt to tmpfile, run `timeout $AGENT_TIMEOUT claude --print --output-format json --max-turns $AGENT_MAX_TURNS --dangerously-skip-permissions`; extract `result` text to output log; save full JSON as `logs/<role>-metrics.json` for token telemetry
 9. Tee Claude output to `$MEMORY_BASE/logs/<role>-output-<timestamp>.log`
 10. On success: delete consumed trigger file (non-architect only). Exit 0 on success,
     124 on timeout, else Claude's exit code.

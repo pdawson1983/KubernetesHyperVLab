@@ -1,7 +1,7 @@
 # Helm Chart: claude-agents v6 (Active)
 
 **Version:** 0.8.0 | **Release name:** `claude-agents` | **Namespace:** `agentforge`
-**Current revision:** 18 | **Agent image:** `20260511-112123` | **Web UI image:** `20260511-113005`
+**Current revision:** 31 | **Agent image:** `20260511-121258` | **Web UI image:** `20260511-121806`
 **Image registry:** `192.168.100.11:30500` (local HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 

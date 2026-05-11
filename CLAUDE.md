@@ -89,8 +89,8 @@ KubernetesHyperVLab/
 
 **Release:** `claude-agents` in namespace `agentforge`
 **Chart version:** 0.8.0
-**Revision:** 18
-**Agent image:** `20260511-112123` | **Web UI image:** `20260511-113005`
+**Revision:** 31
+**Agent image:** `20260511-121258` | **Web UI image:** `20260511-121806`
 **Image registry:** `192.168.100.11:30500` (local, HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
@@ -262,6 +262,9 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Context field → task-scoped CLAUDE.md: dispatcher writes /memory/tasks/<id>/CLAUDE.md from submit form; all agents read it before starting (2026-05-11)
 - [x] Live task view: dispatcher GET /task/<id> endpoint proxies NFS task.json; task detail auto-refreshes every 5s for in-progress runs (2026-05-11)
 - [x] Dashboard auto-refresh every 15s; "< 1s" for sub-second durations (2026-05-11)
+- [x] Token consumption: --output-format json captures input/output/cache tokens + cost_usd + num_turns per agent; stored in agent_runs Postgres; shown on dashboard (Tokens/Cost columns) and task detail (per-agent Turns/Tokens In/Tokens Out/Cost) (2026-05-11)
+- [x] Dashboard shows in-progress tasks: dispatcher GET /tasks endpoint scans NFS; web UI merges live + Postgres results with running tasks at top (2026-05-11)
+- [x] Skip agents: checkboxes on submit form (coder/tester/reviewer/ops); skipped agent writes next queue trigger and exits without calling Claude; shown with neutral gray badge (2026-05-11)
 
 ---
 
@@ -278,7 +281,9 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [ ] System self-improvement loop: `system.improve` event routes to architect with this repo as target; ops opens a PR; data layer provides the signal for what to improve
 - [x] Phase 1 run telemetry: entrypoint.sh writes per-agent timing + status to task.json; completed/failed runs archived to /memory/telemetry/<task-id>.json (2026-05-09)
 - [x] Web UI built: dashboard, submit (context textarea→task CLAUDE.md), task detail, approval gate (2026-05-11)
-- [ ] Token consumption: capture tokens_input/tokens_output per agent; show on dashboard and task detail
+- [x] Token consumption: --output-format json, per-agent tokens/cost/turns in Postgres and web UI (2026-05-11)
+- [x] Dashboard shows in-progress tasks merged from live NFS + Postgres (2026-05-11)
+- [x] Skip agents: submit form checkboxes; entrypoint.sh bypasses skipped agents (2026-05-11)
 - [ ] Agent Instructions wizard: simple mode (current textarea) + guided wizard with Goal/Constraints/Acceptance Criteria sections
 - [ ] Feedback-triggered rebuild: `pipeline.feedback` event accepts a structured observation, routes to architect to propose a fix through the full pipeline including image rebuild
 - [ ] CI/CD scope: external GitHub Actions → webhook integration (future)
