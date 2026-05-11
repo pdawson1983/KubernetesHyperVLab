@@ -237,8 +237,8 @@ webui:
   enabled: true
   image:
     repository: 192.168.100.11:30500/agentforge-webui
-    tag: "latest"
-    pullPolicy: Always
+    tag: "20260511-111333"
+    pullPolicy: IfNotPresent
   port: 8000
   resources:
     requests:

@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ run.title or run.task_id }} — AgentForge{% endblock %}
+{% if live or run.status in ('running', 'awaiting_approval') %}
+<meta http-equiv="refresh" content="5">
+{% endif %}
 {% block content %}
 <div style="margin-bottom:16px;">
   <a href="/" style="color:var(--muted);text-decoration:none;font-size:12px;">← Dashboard</a>
@@ -13,9 +16,14 @@
     {% endif %}
     <br><span class="mono" style="font-size:11px;">{{ run.task_id }}</span>
   </div>
-  <span class="badge {{ run.status or 'running' }}" style="font-size:13px;padding:4px 12px;">
-    {{ run.status or 'running' }}
-  </span>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span class="badge {{ run.status or 'running' }}" style="font-size:13px;padding:4px 12px;">
+      {{ run.status or 'running' }}
+    </span>
+    {% if live %}
+    <span style="font-size:11px;color:var(--warning);">⟳ live · refreshes every 5s</span>
+    {% endif %}
+  </div>
 </div>
 
 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;">

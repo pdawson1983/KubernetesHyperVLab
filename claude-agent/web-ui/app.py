@@ -1,6 +1,6 @@
 import hmac, hashlib, json, os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 
 import asyncpg
 import httpx
@@ -88,20 +88,65 @@ async def dashboard(request: Request):
 @app.get("/tasks/{task_id}", response_class=HTMLResponse)
 async def task_detail(request: Request, task_id: str):
     run = await db.fetchrow("SELECT * FROM pipeline_runs WHERE task_id=$1", task_id)
-    if not run:
-        return HTMLResponse("Task not found", status_code=404)
-    agents = await db.fetch(
-        "SELECT * FROM agent_runs WHERE task_id=$1 ORDER BY started_at", task_id
-    )
-    run = dict(run)
-    run["duration_fmt"] = fmt_duration(run.get("duration_seconds"))
     agent_list = []
-    for a in agents:
-        d = dict(a)
-        d["duration_fmt"] = fmt_duration(d.get("duration_seconds"))
-        agent_list.append(d)
+    live = False  # whether data came from live NFS rather than Postgres
+
+    if run:
+        run = dict(run)
+        run["duration_fmt"] = fmt_duration(run.get("duration_seconds"))
+        db_agents = await db.fetch(
+            "SELECT * FROM agent_runs WHERE task_id=$1 ORDER BY started_at", task_id
+        )
+        for a in db_agents:
+            d = dict(a)
+            d["duration_fmt"] = fmt_duration(d.get("duration_seconds"))
+            agent_list.append(d)
+    else:
+        # Task still running — read live from dispatcher NFS proxy
+        live = True
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"{WEBHOOK_URL}/task/{task_id}", timeout=5)
+            if resp.status_code != 200:
+                return HTMLResponse("Task not found", status_code=404)
+            data = resp.json()
+
+            def _dt(s):
+                if not s:
+                    return None
+                try:
+                    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+                except Exception:
+                    return None
+
+            run = {
+                "task_id": task_id,
+                "title":    data.get("title", task_id),
+                "repo_url": data.get("repo_url", ""),
+                "event":    data.get("event", ""),
+                "status":   data.get("status", "running"),
+                "created_at":  _dt(data.get("created_at")),
+                "completed_at": _dt(data.get("completed_at")),
+                "duration_seconds": data.get("duration_seconds"),
+                "failed_agent": data.get("failed_agent", ""),
+                "duration_fmt": fmt_duration(data.get("duration_seconds")),
+            }
+            for role, a in data.get("agents", {}).items():
+                agent_list.append({
+                    "role":             role,
+                    "status":           a.get("status", "running"),
+                    "duration_seconds": a.get("duration_seconds"),
+                    "duration_fmt":     fmt_duration(a.get("duration_seconds")),
+                    "exit_code":        a.get("exit_code"),
+                    "log_path":         a.get("log"),
+                    "started_at":       _dt(a.get("started_at")),
+                })
+            agent_list.sort(key=lambda x: x.get("started_at") or datetime.min.replace(tzinfo=timezone.utc))
+        except Exception as e:
+            return HTMLResponse(f"Task not found ({e})", status_code=404)
+
     return templates.TemplateResponse("task.html", {
-        "request": request, "run": run, "agents": agent_list
+        "request": request, "run": run, "agents": agent_list, "live": live,
     })
 
 
