@@ -78,6 +78,7 @@ def fmt_duration(secs):
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
+    # Completed/failed tasks from Postgres
     rows = await db.fetch("""
         SELECT r.task_id, r.title, r.repo_url, r.event, r.status,
                r.created_at, r.duration_seconds, r.failed_agent,
@@ -95,6 +96,7 @@ async def dashboard(request: Request):
         ORDER BY r.created_at DESC
         LIMIT 30
     """)
+    pg_ids = set()
     tasks = []
     for r in rows:
         t = dict(r)
@@ -102,7 +104,43 @@ async def dashboard(request: Request):
         t["duration_fmt"] = fmt_duration(t["duration_seconds"])
         t["cost_fmt"] = fmt_cost(float(t["total_cost_usd"] or 0))
         t["tokens_fmt"] = fmt_tokens((t["total_tokens_in"] or 0) + (t["total_tokens_out"] or 0))
+        pg_ids.add(t["task_id"])
         tasks.append(t)
+
+    # In-progress tasks from live NFS via dispatcher (not yet in Postgres)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{WEBHOOK_URL}/tasks", timeout=5)
+        if resp.status_code == 200:
+            for d in resp.json():
+                tid = d.get("task_id")
+                if not tid or tid in pg_ids:
+                    continue
+                agents = []
+                for role, a in d.get("agents", {}).items():
+                    agents.append({"role": role, "status": a.get("status", "running")})
+                agents.sort(key=lambda x: ["architect","coder","tester","reviewer","ops"].index(x["role"])
+                            if x["role"] in ["architect","coder","tester","reviewer","ops"] else 99)
+                def _dt(s):
+                    try: return datetime.fromisoformat(s.replace("Z","+00:00"))
+                    except: return None
+                tasks.insert(0, {
+                    "task_id":          tid,
+                    "title":            d.get("title", tid),
+                    "repo_url":         d.get("repo_url", ""),
+                    "event":            d.get("event", ""),
+                    "status":           d.get("status", "running"),
+                    "created_at":       _dt(d.get("created_at")),
+                    "duration_seconds": d.get("duration_seconds"),
+                    "failed_agent":     d.get("failed_agent", ""),
+                    "agents":           agents,
+                    "duration_fmt":     fmt_duration(d.get("duration_seconds")),
+                    "cost_fmt":         "—",
+                    "tokens_fmt":       "—",
+                })
+    except Exception as e:
+        print(f"[webui] could not fetch live tasks: {e}", flush=True)
+
     return templates.TemplateResponse("dashboard.html", {"request": request, "tasks": tasks})
 
 
