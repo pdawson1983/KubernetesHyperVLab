@@ -11,9 +11,9 @@ entrypoint, or agent-base.md.
 - WSL2 environment with kubectl and helm configured
 - Route to cluster active: `sudo ip route add 192.168.100.0/24 via 172.24.240.1`
 - `webhook.k8s.local` resolving to `192.168.100.200` in `/etc/hosts`
-- `webhook-secret` K8s secret exists in `claude-agents` namespace
+- `webhook-secret` K8s secret exists in `agentforge` namespace
 - Either `anthropic-api-key` secret or `claude-credentials` secret exists (for real mode)
-- Chart deployed: `helm status claude-agents -n claude-agents`
+- Chart deployed: `helm status claude-agents -n agentforge`
 
 ---
 
@@ -55,8 +55,8 @@ Expected output:
 Mock artifacts are cleaned up automatically. Use `--keep` to inspect them:
 ```bash
 ./scripts/pipeline-test.sh --mock --keep
-kubectl exec -n claude-agents \
-  $(kubectl get pod -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
+kubectl exec -n agentforge \
+  $(kubectl get pod -n agentforge -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
   -c dispatcher -- find /memory -name "mock-*" -type f
 ```
 
@@ -102,28 +102,28 @@ ip route | grep 192.168.100
 sudo ip route add 192.168.100.0/24 via 172.24.240.1
 
 # Check ingress
-kubectl get ingress -n claude-agents
+kubectl get ingress -n agentforge
 curl -v http://webhook.k8s.local/healthz
 ```
 
 **Webhook returns non-200**
 ```bash
 # Check dispatcher is running
-kubectl get pods -n claude-agents
+kubectl get pods -n agentforge
 # Check dispatcher logs
-kubectl logs -n claude-agents \
+kubectl logs -n agentforge \
   -l app.kubernetes.io/name=webhook-dispatcher -c dispatcher --tail=20
 ```
 
 **Agent pod never appears (times out at architect)**
 ```bash
 # Check if Job was created
-kubectl get jobs -n claude-agents
+kubectl get jobs -n agentforge
 # Check dispatcher created the job
-kubectl logs -n claude-agents \
+kubectl logs -n agentforge \
   -l app.kubernetes.io/name=webhook-dispatcher -c dispatcher --tail=30
 # Check if CronJob template exists
-kubectl get cronjob -n claude-agents
+kubectl get cronjob -n agentforge
 ```
 
 **Agent pod fails (non-Succeeded)**
@@ -137,11 +137,11 @@ Common causes:
 **Chain stops mid-pipeline (e.g., coder completes but tester never starts)**
 ```bash
 # Check queue-watcher is detecting trigger files
-kubectl logs -n claude-agents \
+kubectl logs -n agentforge \
   -l app.kubernetes.io/name=webhook-dispatcher -c queue-watcher --tail=30
 # Check what's in the queue
-kubectl exec -n claude-agents \
-  $(kubectl get pod -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
+kubectl exec -n agentforge \
+  $(kubectl get pod -n agentforge -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
   -c dispatcher -- find /memory/queue -type f
 ```
 
@@ -152,7 +152,7 @@ kubectl exec -n claude-agents \
 If the test script fails mid-run and the chart is left in test mode:
 ```bash
 cd /mnt/c/Users/pdaws/OneDrive/Desktop/Lab/KubernetesHyperVLab/helm/claude-agents-v6
-helm upgrade claude-agents . -n claude-agents \
+helm upgrade claude-agents . -n agentforge \
   --set global.mockMode=false \
   --set global.maxTurns=10 \
   --set global.model=claude-sonnet-4-20250514

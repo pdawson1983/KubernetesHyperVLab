@@ -36,7 +36,7 @@ MCP is the standard extensibility pattern for adding new capabilities to agents.
 - **GitHub MCP server** (`ghcr.io/github/github-mcp-server`) is the first
   implementation, covering: repo clone/push, PR creation, issue reading, repo create.
 - **MCP server deployment pattern**: each server gets a Deployment + ClusterIP
-  Service in `claude-agents` namespace; URL injected into agent config as
+  Service in `agentforge` namespace; URL injected into agent config as
   `http://<service>.<namespace>.svc.cluster.local:<port>/sse`.
 
 ## Consequences

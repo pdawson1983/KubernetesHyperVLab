@@ -42,7 +42,7 @@ Usage: include "claude-agents.agentLabels" (dict "agent" "architect" "root" .)
 {{ include "claude-agents.labels" .root }}
 app.kubernetes.io/name: {{ .agent }}-agent
 app.kubernetes.io/component: agent
-claude-agents/role: {{ .agent }}
+agentforge/role: {{ .agent }}
 {{- end }}
 
 {{/*
@@ -67,7 +67,7 @@ Standard environment variables injected into every agent container
 - name: AGENT_ROLE
   valueFrom:
     fieldRef:
-      fieldPath: metadata.labels['claude-agents/role']
+      fieldPath: metadata.labels['agentforge/role']
 {{- end }}
 
 {{/*

@@ -46,14 +46,14 @@ kubectl create namespace claude-agents
 
 kubectl create secret generic anthropic-api-key \
   --from-literal=ANTHROPIC_API_KEY=sk-ant-your-key \
-  -n claude-agents
+  -n agentforge
 
 kubectl create secret generic webhook-secret \
   --from-literal=WEBHOOK_SECRET=your-webhook-secret \
-  -n claude-agents
+  -n agentforge
 
 # 2. Install the chart
-helm install claude-agents . -n claude-agents
+helm install claude-agents . -n agentforge
 
 # 3. Send a test event
 curl -X POST http://192.168.100.11:30080 \
@@ -62,7 +62,7 @@ curl -X POST http://192.168.100.11:30080 \
   -d '{"event": "issue.opened", "title": "Add login page"}'
 
 # 4. Watch the pipeline
-kubectl get pods -n claude-agents -w
+kubectl get pods -n agentforge -w
 ```
 
 ## Agent Pipeline Flow
@@ -149,38 +149,38 @@ claude-agents/
 
 ```bash
 # All resources in the namespace
-kubectl get all -n claude-agents
+kubectl get all -n agentforge
 
 # Watch jobs as they're created
-kubectl get jobs -n claude-agents -w
+kubectl get jobs -n agentforge -w
 
 # Agent logs
-kubectl logs -n claude-agents -l claude-agents/role=architect -f
-kubectl logs -n claude-agents -l claude-agents/role=coder -f
+kubectl logs -n agentforge -l agentforge/role=architect -f
+kubectl logs -n agentforge -l agentforge/role=coder -f
 
 # Dispatcher logs
-kubectl logs -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -f
+kubectl logs -n agentforge -l app.kubernetes.io/name=webhook-dispatcher -f
 
 # Memory contents
-kubectl exec -n claude-agents \
-  $(kubectl get pod -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -o name) \
+kubectl exec -n agentforge \
+  $(kubectl get pod -n agentforge -l app.kubernetes.io/name=webhook-dispatcher -o name) \
   -- find /memory -type f
 ```
 
 ## Upgrading
 
 ```bash
-helm upgrade claude-agents . -n claude-agents -f my-values.yaml
+helm upgrade claude-agents . -n agentforge -f my-values.yaml
 ```
 
 ## Uninstalling
 
 ```bash
 # Removes everything EXCEPT the memory PVC (preserved by annotation)
-helm uninstall claude-agents -n claude-agents
+helm uninstall claude-agents -n agentforge
 
 # To also delete memory (WARNING: loses all agent state)
-kubectl delete pvc -n claude-agents -l app.kubernetes.io/managed-by=Helm
+kubectl delete pvc -n agentforge -l app.kubernetes.io/managed-by=Helm
 ```
 
 ## Next Steps

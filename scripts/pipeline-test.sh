@@ -23,7 +23,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CHART_DIR="$SCRIPT_DIR/../helm/claude-agents-v6"
-NAMESPACE="claude-agents"
+NAMESPACE="agentforge"
 TIMEOUT=300
 MODE=""
 KEEP=false
@@ -84,7 +84,7 @@ snapshot_existing_pods() {
   local role
   for role in architect coder tester reviewer ops; do
     PRE_PODS[$role]=$(kubectl get pods -n "$NAMESPACE" \
-      -l "claude-agents/role=$role" \
+      -l "agentforge/role=$role" \
       -o jsonpath='{range .items[*]}{.metadata.name} {end}' 2>/dev/null | sed 's/ *$//')
   done
 }
@@ -240,7 +240,7 @@ wait_for_agent() {
     fi
 
     local result
-    result=$(kubectl get pods -n "$NAMESPACE" -l "claude-agents/role=$role" \
+    result=$(kubectl get pods -n "$NAMESPACE" -l "agentforge/role=$role" \
       -o json 2>/dev/null | python3 "$_POD_FILTER" "$pre")
 
     local PHASE POD

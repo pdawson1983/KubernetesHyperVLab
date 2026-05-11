@@ -8,7 +8,7 @@
 fullnameOverride: agentforge
 
 global:
-  namespace: claude-agents
+  namespace: agentforge
   apiKeySecret: anthropic-api-key
   # Set enabled: true and create the secret with your ~/.claude/.credentials.json
   # to use a Claude.ai Max subscription instead of a raw API key.

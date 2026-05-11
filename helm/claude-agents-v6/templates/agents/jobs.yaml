@@ -24,7 +24,7 @@ metadata:
     {{- include "claude-agents.agentLabels" (dict "agent" "architect" "root" .) | nindent 4 }}
   annotations:
     claude-agents/triggers: {{ .Values.agents.architect.triggers | join "," | quote }}
-    claude-agents/type: "template"
+    agentforge/type: "template"
 spec:
   schedule: "0 0 31 2 *"   # Feb 31 — never runs naturally
   suspend: true              # explicitly suspended as a safety net
@@ -81,7 +81,7 @@ metadata:
     {{- include "claude-agents.agentLabels" (dict "agent" "coder" "root" .) | nindent 4 }}
   annotations:
     claude-agents/triggers: {{ .Values.agents.coder.triggers | join "," | quote }}
-    claude-agents/type: "template"
+    agentforge/type: "template"
 spec:
   schedule: "0 0 31 2 *"
   suspend: true
@@ -128,7 +128,7 @@ metadata:
     {{- include "claude-agents.agentLabels" (dict "agent" "reviewer" "root" .) | nindent 4 }}
   annotations:
     claude-agents/triggers: {{ .Values.agents.reviewer.triggers | join "," | quote }}
-    claude-agents/type: "template"
+    agentforge/type: "template"
 spec:
   schedule: "0 0 31 2 *"
   suspend: true
@@ -175,7 +175,7 @@ metadata:
     {{- include "claude-agents.agentLabels" (dict "agent" "tester" "root" .) | nindent 4 }}
   annotations:
     claude-agents/triggers: {{ .Values.agents.tester.triggers | join "," | quote }}
-    claude-agents/type: "template"
+    agentforge/type: "template"
 spec:
   schedule: "0 0 31 2 *"
   suspend: true
@@ -222,7 +222,7 @@ metadata:
     {{- include "claude-agents.agentLabels" (dict "agent" "ops" "root" .) | nindent 4 }}
   annotations:
     claude-agents/triggers: {{ .Values.agents.ops.triggers | join "," | quote }}
-    claude-agents/type: "template"
+    agentforge/type: "template"
 spec:
   schedule: "0 0 31 2 *"
   suspend: true

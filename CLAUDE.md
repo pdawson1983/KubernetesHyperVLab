@@ -87,36 +87,38 @@ KubernetesHyperVLab/
 
 ## Helm Chart State
 
-**Release:** `claude-agents` in namespace `claude-agents`
-**Chart version:** 0.6.0
-**Revision:** 20
-**Image tag:** `20260510-113504` (pinned — update in values.yaml on each push)
+**Release:** `claude-agents` in namespace `agentforge`
+**Chart version:** 0.7.0
+**Revision:** (see helm list -n agentforge)
+**Image tag:** `20260510-212544` (pinned — update in values.yaml on each push)
 **Image registry:** `192.168.100.11:30500` (local, HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
 ### What's Running
 
 ```
-deployment/claude-agents-claude-agents-webhook      1/1  Running  ← dispatcher + queue-watcher
-deployment/claude-agents-claude-agents-registry     1/1  Running  ← docker registry v2
-deployment/claude-agents-claude-agents-github-mcp   1/1  Running  ← GitHub MCP server v1.0.3 :8080
+deployment/agentforge-webhook      1/1  Running  ← dispatcher + queue-watcher + observer
+deployment/agentforge-registry     1/1  Running  ← docker registry v2
+deployment/agentforge-github-mcp   1/1  Running  ← GitHub MCP server v1.0.3 :8080
+deployment/agentforge-postgres     1/1  Running  ← Postgres 16-alpine observability DB
 ```
 
 ### CronJobs (suspended templates)
 
 ```
-cronjob/claude-agents-claude-agents-architect   SUSPEND=true
-cronjob/claude-agents-claude-agents-coder       SUSPEND=true
-cronjob/claude-agents-claude-agents-reviewer    SUSPEND=true
-cronjob/claude-agents-claude-agents-tester      SUSPEND=true
-cronjob/claude-agents-claude-agents-ops         SUSPEND=true
+cronjob/agentforge-architect   SUSPEND=true
+cronjob/agentforge-coder       SUSPEND=true
+cronjob/agentforge-reviewer    SUSPEND=true
+cronjob/agentforge-tester      SUSPEND=true
+cronjob/agentforge-ops         SUSPEND=true
 ```
 
 ### PVCs
 
 ```
-claude-agents-claude-agents-memory     Bound  10Gi  RWX  nfs          ← shared agent memory
-claude-agents-claude-agents-registry   Bound  20Gi  RWO  local-path   ← registry images
+agentforge-memory     Bound  10Gi  RWX  nfs          ← shared agent memory
+agentforge-registry   Bound  20Gi  RWO  local-path   ← registry images
+agentforge-postgres   Bound  5Gi   RWO  local-path   ← observability DB
 ```
 
 ### Ingress
@@ -130,10 +132,10 @@ registry excluded  → uses NodePort :30500 directly
 
 ```bash
 kubectl create secret generic anthropic-api-key \
-  --from-literal=ANTHROPIC_API_KEY=sk-ant-xxx -n claude-agents
+  --from-literal=ANTHROPIC_API_KEY=sk-ant-xxx -n agentforge
 
 kubectl create secret generic webhook-secret \
-  --from-literal=WEBHOOK_SECRET=your-secret -n claude-agents
+  --from-literal=WEBHOOK_SECRET=your-secret -n agentforge
 ```
 
 ---
@@ -317,9 +319,9 @@ fine (43G filesystem, 17% used — no gap).
 **GitHub PAT needs rotation (2026-05-10)** — the token was entered in a conversation
 transcript. Rotate at github.com/settings/tokens, then:
 ```bash
-kubectl delete secret github-token -n claude-agents
+kubectl delete secret github-token -n agentforge
 kubectl create secret generic github-token \
-  --from-literal=GITHUB_TOKEN="$(cat ~/.config/agentforge/github-token)" -n claude-agents
+  --from-literal=GITHUB_TOKEN="$(cat ~/.config/agentforge/github-token)" -n agentforge
 ```
 Token stored at `~/.config/agentforge/github-token` (mode 600, outside repo).
 
@@ -355,7 +357,7 @@ architect. Changing agent behaviour now requires an image rebuild and push.
 ```bash
 # Fire a test event
 PAYLOAD='{"event": "issue.opened", "title": "Add hello world endpoint"}'
-SECRET=$(kubectl get secret webhook-secret -n claude-agents \
+SECRET=$(kubectl get secret webhook-secret -n agentforge \
   -o jsonpath='{.data.WEBHOOK_SECRET}' | base64 -d)
 SIG="sha256=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | cut -d' ' -f2)"
 curl -X POST http://webhook.k8s.local \
@@ -365,18 +367,18 @@ curl -X POST http://webhook.k8s.local \
   -d "$PAYLOAD"
 
 # Watch pipeline
-kubectl get pods -n claude-agents -w
-kubectl logs -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -c dispatcher -f
-kubectl logs -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -c queue-watcher -f
-kubectl logs -n claude-agents -l claude-agents/role=architect -f
+kubectl get pods -n agentforge -w
+kubectl logs -n agentforge -l app.kubernetes.io/name=webhook-dispatcher -c dispatcher -f
+kubectl logs -n agentforge -l app.kubernetes.io/name=webhook-dispatcher -c queue-watcher -f
+kubectl logs -n agentforge -l agentforge/role=architect -f
 
 # Inspect memory
-kubectl exec -n claude-agents \
-  $(kubectl get pod -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -o name) \
+kubectl exec -n agentforge \
+  $(kubectl get pod -n agentforge -l app.kubernetes.io/name=webhook-dispatcher -o name) \
   -c dispatcher -- find /memory -type f
 
 # Upgrade chart
-helm upgrade claude-agents . -n claude-agents
+helm upgrade claude-agents . -n agentforge
 
 # Build and push image — full versioned tag workflow (see ADR-007)
 cd KubernetesHyperVLab/claude-agent/claude-agent-image
@@ -392,7 +394,7 @@ podman push 192.168.100.11:30500/claude-agent:${VERSION_TAG} --tls-verify=false
 
 # Update values.yaml image.tag to $VERSION_TAG, then upgrade
 cd KubernetesHyperVLab/helm/claude-agents-v6
-helm upgrade claude-agents . -n claude-agents
+helm upgrade claude-agents . -n agentforge
 
 # Refresh Claude.ai Max credentials (expire ~every 24h)
 ./scripts/refresh-credentials.sh           # login only if expiring within 2h
@@ -401,13 +403,13 @@ helm upgrade claude-agents . -n claude-agents
 
 # Inspect a specific task run
 TASK_ID=<task-id>
-kubectl exec -n claude-agents \
-  $(kubectl get pod -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
+kubectl exec -n agentforge \
+  $(kubectl get pod -n agentforge -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
   -c dispatcher -- find /memory/tasks/${TASK_ID} -type f
 
 # Fire a task with a GitHub repo (git repo integration)
 PAYLOAD='{"event": "issue.opened", "title": "Add hello endpoint", "repoUrl": "https://github.com/owner/repo"}'
-SECRET=$(kubectl get secret webhook-secret -n claude-agents \
+SECRET=$(kubectl get secret webhook-secret -n agentforge \
   -o jsonpath='{.data.WEBHOOK_SECRET}' | base64 -d)
 SIG="sha256=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | cut -d' ' -f2)"
 curl -X POST http://webhook.k8s.local \
@@ -427,18 +429,18 @@ cd KubernetesHyperVLab
 claude auth login   # run once in WSL to populate ~/.claude/.credentials.json
 kubectl create secret generic claude-credentials \
   --from-file=.credentials.json=$HOME/.claude/.credentials.json \
-  -n claude-agents
+  -n agentforge
 # Then set global.claudeCredentials.enabled=true in values.yaml and helm upgrade
 
 # Test with mock mode via helm flag (without modifying values.yaml)
-helm upgrade claude-agents . -n claude-agents --set global.mockMode=true
-helm upgrade claude-agents . -n claude-agents  # restore defaults
+helm upgrade claude-agents . -n agentforge --set global.mockMode=true
+helm upgrade claude-agents . -n agentforge  # restore defaults
 
 # GitHub MCP server — recreate token secret after PAT rotation
-kubectl delete secret github-token -n claude-agents
+kubectl delete secret github-token -n agentforge
 kubectl create secret generic github-token \
-  --from-literal=GITHUB_TOKEN="$(cat ~/.config/agentforge/github-token)" -n claude-agents
+  --from-literal=GITHUB_TOKEN="$(cat ~/.config/agentforge/github-token)" -n agentforge
 
 # Check GitHub MCP server health
-kubectl logs -n claude-agents -l app.kubernetes.io/name=github-mcp-server --tail=10
+kubectl logs -n agentforge -l app.kubernetes.io/name=github-mcp-server --tail=10
 ```

@@ -40,7 +40,7 @@ Change `defaultMode` to `0444` (world-readable):
 ```
 
 After changing in `helm/claude-agents-v6/templates/_helpers.tpl`, run
-`helm upgrade claude-agents . -n claude-agents`.
+`helm upgrade claude-agents . -n agentforge`.
 
 ## Prevention
 

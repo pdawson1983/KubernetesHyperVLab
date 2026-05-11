@@ -42,7 +42,7 @@ Order matters — k8s-control must be ready before workers try to mount NFS.
 
 5. **Verify dispatcher is running**
    ```bash
-   kubectl get pods -n claude-agents
+   kubectl get pods -n agentforge
    curl -s http://webhook.k8s.local/healthz
    ```
 
@@ -54,11 +54,11 @@ Graceful order (optional but cleaner):
 
 1. Scale dispatcher to 0 to prevent in-flight jobs:
    ```bash
-   kubectl scale deployment claude-agents-claude-agents-webhook -n claude-agents --replicas=0
+   kubectl scale deployment agentforge-webhook -n agentforge --replicas=0
    ```
 2. Wait for any running agent pods to finish (or delete them):
    ```bash
-   kubectl get pods -n claude-agents
+   kubectl get pods -n agentforge
    ```
 3. Shutdown workers first, then k8s-control.
 
@@ -73,7 +73,7 @@ Usually no action needed. Check:
 
 ```bash
 kubectl get nodes          # all Ready?
-kubectl get pods -n claude-agents   # dispatcher running?
+kubectl get pods -n agentforge   # dispatcher running?
 ```
 
 If nodes show `NotReady` for more than 2 minutes after resume, the kubelet

@@ -56,7 +56,7 @@ watches `queue/` (not `queue/active/`), so stale files there do not trigger re-f
   ownership. This requires verifying the queue-watcher script runs correctly as non-root.
 - If stale `queue/active/` files accumulate (e.g., after pod failures), clean them manually:
   ```bash
-  kubectl exec -n claude-agents \
-    $(kubectl get pod -n claude-agents -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
+  kubectl exec -n agentforge \
+    $(kubectl get pod -n agentforge -l app.kubernetes.io/name=webhook-dispatcher -o name | head -1) \
     -c dispatcher -- sh -c 'rm -f /memory/queue/active/*.json'
   ```

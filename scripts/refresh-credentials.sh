@@ -24,7 +24,7 @@
 set -euo pipefail
 
 CREDS="${HOME}/.claude/.credentials.json"
-NAMESPACE="claude-agents"
+NAMESPACE="agentforge"
 SECRET_NAME="claude-credentials"
 WARN_THRESHOLD=7200   # refresh if expiring within 2 hours (7200s)
 

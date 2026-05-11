@@ -53,7 +53,7 @@ For HTTP transport, use `type: "http"` (not `"sse"`):
   "mcpServers": {
     "github": {
       "type": "http",
-      "url": "http://claude-agents-claude-agents-github-mcp.claude-agents.svc.cluster.local:8080"
+      "url": "http://agentforge-github-mcp.agentforge.svc.cluster.local:8080"
     }
   }
 }
@@ -65,8 +65,8 @@ When adding a new MCP server, always probe the image first before setting args:
 
 ```bash
 kubectl run mcp-probe --rm -i --restart=Never \
-  --image=<image> -n claude-agents -- --help
+  --image=<image> -n agentforge -- --help
 # Then check subcommands:
 kubectl run mcp-probe --rm -i --restart=Never \
-  --image=<image> -n claude-agents -- http --help
+  --image=<image> -n agentforge -- http --help
 ```
