@@ -88,19 +88,20 @@ KubernetesHyperVLab/
 ## Helm Chart State
 
 **Release:** `claude-agents` in namespace `agentforge`
-**Chart version:** 0.7.0
-**Revision:** 6
-**Image tag:** `20260510-212544` (pinned — update in values.yaml on each push)
+**Chart version:** 0.8.0
+**Revision:** 18
+**Agent image:** `20260511-112123` | **Web UI image:** `20260511-113005`
 **Image registry:** `192.168.100.11:30500` (local, HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
 ### What's Running
 
 ```
-deployment/agentforge-webhook      1/1  Running  ← dispatcher + queue-watcher + observer
+deployment/agentforge-webhook      3/3  Running  ← dispatcher + queue-watcher + observer
 deployment/agentforge-registry     1/1  Running  ← docker registry v2
 deployment/agentforge-github-mcp   1/1  Running  ← GitHub MCP server v1.0.3 :8080
 deployment/agentforge-postgres     1/1  Running  ← Postgres 16-alpine observability DB
+deployment/agentforge-webui        1/1  Running  ← FastAPI dashboard (dashboard.k8s.local)
 ```
 
 ### CronJobs (suspended templates)
@@ -257,6 +258,10 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Resource naming deduplicated: claude-agents-claude-agents-* → agentforge-* (fullnameOverride, RESOURCE_PREFIX env var for dispatcher, agentforge/role labels)
 - [x] Namespace migrated: claude-agents → agentforge; all scripts, docs, label selectors updated; mock 14/14 in agentforge namespace (2026-05-10)
 - [x] WSL route persistence validated: task WSL-K8s-Route confirmed working at logon; gap documented (mid-session restart workaround: schtasks.exe /Run /TN "\\WSL-K8s-Route")
+- [x] Web UI (dashboard.k8s.local): dashboard, submit with plain-English pipeline mode + Agent Instructions textarea, task detail with live auto-refresh, approval gate page (2026-05-11, chart 0.8.0)
+- [x] Context field → task-scoped CLAUDE.md: dispatcher writes /memory/tasks/<id>/CLAUDE.md from submit form; all agents read it before starting (2026-05-11)
+- [x] Live task view: dispatcher GET /task/<id> endpoint proxies NFS task.json; task detail auto-refreshes every 5s for in-progress runs (2026-05-11)
+- [x] Dashboard auto-refresh every 15s; "< 1s" for sub-second durations (2026-05-11)
 
 ---
 
@@ -272,7 +277,9 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Observability data layer: Postgres deployed, pipeline_runs + agent_runs tables, observer sidecar auto-imports telemetry files (2026-05-10)
 - [ ] System self-improvement loop: `system.improve` event routes to architect with this repo as target; ops opens a PR; data layer provides the signal for what to improve
 - [x] Phase 1 run telemetry: entrypoint.sh writes per-agent timing + status to task.json; completed/failed runs archived to /memory/telemetry/<task-id>.json (2026-05-09)
-- [ ] Build web UI + Postgres: task submission UI backed by Postgres; same DB used for observability queries and self-improvement analysis
+- [x] Web UI built: dashboard, submit (context textarea→task CLAUDE.md), task detail, approval gate (2026-05-11)
+- [ ] Token consumption: capture tokens_input/tokens_output per agent; show on dashboard and task detail
+- [ ] Agent Instructions wizard: simple mode (current textarea) + guided wizard with Goal/Constraints/Acceptance Criteria sections
 - [ ] Feedback-triggered rebuild: `pipeline.feedback` event accepts a structured observation, routes to architect to propose a fix through the full pipeline including image rebuild
 - [ ] CI/CD scope: external GitHub Actions → webhook integration (future)
 - [x] Agent CronJob securityContext: runAsUser/runAsGroup/fsGroup 1001, runAsNonRoot: true on all 5 agents (2026-05-10)
@@ -472,4 +479,18 @@ kubectl exec -n agentforge \
 # Recreate registry-tls after namespace migration (if lost, regenerate with scripts/node-setup/generate-registry-tls.sh)
 kubectl create secret tls registry-tls \
   --cert=/tmp/registry-tls/tls.crt --key=/tmp/registry-tls/tls.key -n agentforge
+
+# Build and push web UI image (versioned tag)
+cd KubernetesHyperVLab/claude-agent/web-ui
+WEBUI_TAG="$(date -u +%Y%m%d-%H%M%S)"
+podman build --no-cache -t agentforge-webui:latest .
+podman tag agentforge-webui:latest 192.168.100.11:30500/agentforge-webui:${WEBUI_TAG}
+podman push 192.168.100.11:30500/agentforge-webui:${WEBUI_TAG} --tls-verify=false
+# Update webui.image.tag in values.yaml to $WEBUI_TAG, then helm upgrade
+
+# Web UI logs
+kubectl logs -n agentforge -l app.kubernetes.io/name=webui --tail=20
+
+# Add dashboard.k8s.local to /etc/hosts (WSL + Windows)
+# 192.168.100.200 webhook.k8s.local dashboard.k8s.local
 ```

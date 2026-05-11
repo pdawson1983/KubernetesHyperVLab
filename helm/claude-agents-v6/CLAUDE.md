@@ -1,7 +1,7 @@
 # Helm Chart: claude-agents v6 (Active)
 
-**Version:** 0.7.0 | **Release name:** `claude-agents` | **Namespace:** `agentforge`
-**Current revision:** 6 | **Image tag:** `20260510-212544`
+**Version:** 0.8.0 | **Release name:** `claude-agents` | **Namespace:** `agentforge`
+**Current revision:** 18 | **Agent image:** `20260511-112123` | **Web UI image:** `20260511-113005`
 **Image registry:** `192.168.100.11:30500` (local HTTPS, self-signed CA trusted on all nodes)
 **Auth:** Claude Max credentials (`claude-credentials` secret, `claudeCredentials.enabled: true`)
 
@@ -23,6 +23,7 @@ templates/
 ├── registry/registry.yaml — docker registry v2, NodePort :30500, local-path PVC 20Gi
 ├── mcp/github-mcp-server.yaml — GitHub MCP server Deployment + ClusterIP Service :8080
 ├── postgres/postgres.yaml — Postgres 16-alpine Deployment + Service + PVC + init ConfigMap
+├── webui/webui.yaml — FastAPI web UI Deployment + ClusterIP Service
 └── webhook/dispatcher.yaml — 3-container Deployment: dispatcher + queue-watcher + observer
 ```
 

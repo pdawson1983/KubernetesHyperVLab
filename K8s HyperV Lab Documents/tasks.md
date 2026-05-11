@@ -78,6 +78,9 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 | WSL route persistence validated | 2026-05-10 | task WSL-K8s-Route confirmed working at logon; gap: mid-session WSL restart loses route — workaround documented |
 | Resource naming deduplicated | 2026-05-10 | claude-agents-claude-agents-* → agentforge-*; fullnameOverride, RESOURCE_PREFIX env var, agentforge/role labels, serviceAccountName:agentforge |
 | Namespace migrated to agentforge | 2026-05-10 | global.namespace:agentforge; all scripts, docs, label selectors updated; fresh Helm install in agentforge namespace; mock 14/14 |
+| Web UI built (dashboard.k8s.local) | 2026-05-11 | FastAPI+Jinja2: dashboard (15s auto-refresh), submit (pipeline mode + Agent Instructions textarea→task CLAUDE.md), task detail (5s live refresh from NFS), approval gate; chart 0.8.0 |
+| Live task view fix | 2026-05-11 | GET /task/<id> on dispatcher proxies NFS task.json; web UI falls back when task not yet in Postgres (still running); "< 1s" for sub-second durations |
+| Task-scoped CLAUDE.md from submit form | 2026-05-11 | context field in payload → dispatcher writes /memory/tasks/<id>/CLAUDE.md; entrypoint.sh reads task-scoped over global CLAUDE.md; all 5 agents see it |
 | Rotate GitHub PAT | 2026-05-10 | Done — token rotated by user |
 | MCP extensibility pattern — GitHub MCP server | 2026-05-10 | github-mcp-server v1.0.3 running in-cluster (HTTP :8080); entrypoint.sh wires mcpServers from queue file into ~/.claude/settings.json; mock 14/14 |
 | System diagrams (Mermaid) | 2026-05-10 | Four diagrams added to K8s HyperV Lab Documents/diagrams/: cluster topology, agent flow, MCP pattern, WSL connectivity |

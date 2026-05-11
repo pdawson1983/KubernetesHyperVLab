@@ -53,7 +53,8 @@ and cache the image after first pull. Nodes trust the registry via the system CA
 6. **If `AGENT_MOCK=true`:** write fixture files, write trigger file (to `$MEMORY_BASE/queue/`), exit 0
 7. **MCP setup:** read `mcpServers` array from trigger payload; for each named server, look up `MCP_<NAME>_URL` env var and write `~/.claude/settings.json`. Skipped if array is absent or empty. See ADR-011.
 8. **Git config:** if `GITHUB_TOKEN` is set, configure git URL rewrite so `git clone/push https://github.com/` authenticates automatically. Sets `AgentForge` as git user name/email.
-9. Build prompt = role identity + **resolved MEMORY_BASE path** + payload + `/memory/CLAUDE.md` (if present)
+9. **Project context:** check `$MEMORY_BASE/CLAUDE.md` first (task-scoped, written by dispatcher from submit form context field); fall back to `/memory/CLAUDE.md` (global). Injected into all agents' prompts.
+10. Build prompt = role identity + **resolved MEMORY_BASE path** + payload + project context (if present)
 10. Write prompt to tmpfile, run `timeout $AGENT_TIMEOUT claude --print --max-turns $AGENT_MAX_TURNS --dangerously-skip-permissions`
 9. Tee Claude output to `$MEMORY_BASE/logs/<role>-output-<timestamp>.log`
 10. On success: delete consumed trigger file (non-architect only). Exit 0 on success,
