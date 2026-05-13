@@ -4,11 +4,9 @@
 {% block content %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
   <h1 style="margin-bottom:0;">Pipeline Runs</h1>
-  <form method="post" action="/self-improve" style="margin:0;">
-    <button type="submit" class="btn btn-primary" style="gap:8px;">
-      ⟳ Run Self-Improvement
-    </button>
-  </form>
+  <a href="/self-improve" class="btn btn-primary" style="text-decoration:none;">
+    ⟳ Run Self-Improvement
+  </a>
 </div>
 
 {% if tasks %}

@@ -288,14 +288,40 @@ async def submit_task(
 
 # ── Self-improvement ───────────────────────────────────────────────────────────
 
+@app.get("/self-improve", response_class=HTMLResponse)
+async def self_improve_form(request: Request):
+    try:
+        rows = await db.fetch("""
+            SELECT role,
+                   COUNT(*)                                          AS runs,
+                   ROUND(AVG(num_turns)::numeric, 1)                AS avg_turns,
+                   ROUND(AVG(cost_usd)::numeric, 4)                 AS avg_cost,
+                   SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failures
+            FROM agent_runs
+            WHERE num_turns > 0
+            GROUP BY role ORDER BY avg_turns DESC NULLS LAST
+        """)
+        stats = [dict(r) for r in rows]
+    except Exception:
+        stats = []
+    return templates.TemplateResponse("self_improve.html", {
+        "request": request, "stats": stats, "repo_url": SELF_IMPROVE_REPO,
+    })
+
+
 @app.post("/self-improve")
-async def run_self_improve():
+async def run_self_improve(
+    request: Request,
+    context: str = Form(""),
+):
     title = f"AgentForge self-improvement — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
     payload = {
         "event": "system.improve",
         "title": title,
         "repoUrl": SELF_IMPROVE_REPO,
     }
+    if context.strip():
+        payload["context"] = context.strip()
     payload_bytes = json.dumps(payload).encode()
     sig = sign(payload_bytes)
     try:
@@ -317,6 +343,25 @@ async def run_self_improve():
     except Exception as e:
         print(f"[webui] self-improve dispatch failed: {e}", flush=True)
     return RedirectResponse("/", status_code=303)
+
+
+# ── Agent log viewer ─────────────────────────────────────────────────────────
+
+@app.get("/tasks/{task_id}/logs/{role}", response_class=HTMLResponse)
+async def agent_log(request: Request, task_id: str, role: str):
+    content = None
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{WEBHOOK_URL}/task/{task_id}/log/{role}", timeout=10
+            )
+        if resp.status_code == 200:
+            content = resp.json().get("content")
+    except Exception as e:
+        content = f"Error fetching log: {e}"
+    return templates.TemplateResponse("log_view.html", {
+        "request": request, "task_id": task_id, "role": role, "content": content,
+    })
 
 
 # ── Approvals ──────────────────────────────────────────────────────────────────

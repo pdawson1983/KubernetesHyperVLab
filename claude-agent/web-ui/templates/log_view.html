@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ role }} output — {{ task_id[:16] }} — AgentForge{% endblock %}
+{% block content %}
+<div style="margin-bottom:12px;display:flex;align-items:center;gap:12px;">
+  <a href="/tasks/{{ task_id }}" style="color:var(--muted);text-decoration:none;font-size:12px;">
+    ← Task {{ task_id }}
+  </a>
+  <span style="color:var(--border);">|</span>
+  <span style="font-size:12px;color:var(--muted);">
+    <strong style="color:var(--text);text-transform:capitalize;">{{ role }}</strong> output log
+  </span>
+</div>
+
+{% if content %}
+<pre style="background:var(--surface);border:1px solid var(--border);border-radius:8px;
+     padding:16px 20px;overflow-x:auto;font-size:12px;line-height:1.6;
+     color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:80vh;overflow-y:auto;">{{ content }}</pre>
+{% else %}
+<div class="card" style="text-align:center;padding:40px;color:var(--muted);">
+  No output log found for <strong>{{ role }}</strong> on task <code>{{ task_id }}</code>.<br><br>
+  <span style="font-size:12px;">
+    Log may have been cleaned up, or this agent didn't run (skipped/mock mode).
+  </span>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Run Self-Improvement — AgentForge{% endblock %}
+{% block content %}
+<div style="margin-bottom:16px;">
+  <a href="/" style="color:var(--muted);text-decoration:none;font-size:12px;">← Dashboard</a>
+</div>
+
+<h1>Run Self-Improvement</h1>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
+
+  <!-- Performance data -->
+  <div>
+    <h2>Current Performance</h2>
+    {% if stats %}
+    <div class="card" style="padding:0;margin-bottom:16px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Role</th>
+            <th>Runs</th>
+            <th>Avg Turns</th>
+            <th>Avg Cost</th>
+            <th>Failures</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in stats %}
+          <tr>
+            <td style="font-weight:600;text-transform:capitalize;">{{ s.role }}</td>
+            <td class="mono">{{ s.runs }}</td>
+            <td class="mono" style="{% if s.avg_turns and s.avg_turns > 30 %}color:var(--warning){% endif %}">
+              {{ s.avg_turns or '—' }}
+            </td>
+            <td class="mono">${{ '%.4f'|format(s.avg_cost|float) if s.avg_cost else '—' }}</td>
+            <td class="mono" style="{% if s.failures > 0 %}color:var(--error){% endif %}">
+              {{ s.failures }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:11px;color:var(--muted);">
+      Only runs where Claude was invoked (cost_usd &gt; 0). Avg turns &gt; 30 highlighted in amber.
+    </div>
+    {% else %}
+    <div class="card" style="color:var(--muted);padding:20px;text-align:center;">
+      No performance data yet — run some tasks first.
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Launch form -->
+  <div>
+    <h2>Launch Options</h2>
+    <div class="card">
+      <form method="post" action="/self-improve">
+
+        <div class="form-group">
+          <label for="context">
+            Additional Focus
+            <span style="color:var(--muted);font-weight:400;">(optional)</span>
+          </label>
+          <textarea id="context" name="context" rows="6"
+            placeholder="Guide the architect's analysis, e.g:
+
+Focus on ops — it's spending too many turns generating artifacts that aren't needed.
+
+Or: Investigate why architect is failing on first attempt — check if it's a credentials timing issue.
+
+Or: Tester is writing too many tests for simple scripts — suggest a proportionality guideline."></textarea>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+            Written as a task-scoped CLAUDE.md read by all agents before starting.
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Target repo</label>
+          <div class="mono" style="background:#0d1018;border:1px solid var(--border);border-radius:6px;
+               padding:8px 12px;font-size:12px;color:var(--muted);">
+            {{ repo_url }}
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;gap:10px;align-items:center;">
+          <button type="submit" class="btn btn-primary">⟳ Launch Self-Improvement</button>
+          <a href="/" style="color:var(--muted);font-size:13px;text-decoration:none;">Cancel</a>
+        </div>
+      </form>
+    </div>
+
+    <div class="card" style="margin-top:12px;border-color:var(--border);">
+      <div class="meta" style="margin-bottom:6px;">What happens</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.8;">
+        1. Architect queries this performance table, reads current <code>agent-base.md</code><br>
+        2. Proposes 1–3 targeted edits backed by data<br>
+        3. Coder applies changes, creates branch <code>agentforge/improve/&lt;id&gt;</code><br>
+        4. Reviewer assesses safety + testability<br>
+        5. Ops opens a PR — merge gate: <code>./tests/run-all.sh --unit --helm</code>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

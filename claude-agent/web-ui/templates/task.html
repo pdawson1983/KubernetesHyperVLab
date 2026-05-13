@@ -73,6 +73,7 @@
         <th>Cost</th>
         <th>Exit</th>
         <th>Started</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -90,6 +91,15 @@
         </td>
         <td class="meta">
           {% if a.started_at %}{{ a.started_at.strftime('%H:%M:%S') }}{% else %}—{% endif %}
+        </td>
+        <td>
+          {% if a.status not in ('skipped', 'running') %}
+          <a href="/tasks/{{ run.task_id }}/logs/{{ a.role }}" target="_blank"
+             style="font-size:11px;color:var(--muted);text-decoration:none;"
+             title="View {{ a.role }} Claude output">
+            output ↗
+          </a>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
