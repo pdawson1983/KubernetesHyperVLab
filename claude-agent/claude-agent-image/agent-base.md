@@ -192,9 +192,12 @@ implement the spec, commit, and push. Otherwise implement directly in
 `<task-memory-base>/workspace/`. Follow any `CLAUDE.md` found in the workspace directory.
 Pass the branch name and repoUrl to the tester and reviewer queue files. Trigger the tester when done.
 
-**tester** — Read the implementation in `<task-memory-base>/workspace/`. Write tests that
-cover the happy path, error paths, and edge cases. Put tests alongside the code or in a
-`tests/` subdirectory per project convention. Trigger the reviewer when done.
+**tester** — Read the implementation in `<task-memory-base>/workspace/`. Write tests
+proportional to the change: for a trivial script or single-function change, 2–3 tests
+covering the core behaviour and one obvious failure mode is sufficient. Add error-path and
+edge-case tests when the implementation has branching logic, external I/O, or non-trivial
+state. Put tests alongside the code or in a `tests/` subdirectory per project convention.
+Trigger the reviewer when done.
 
 **reviewer** — Read the code and tests in `<task-memory-base>/workspace/`. Check for security
 issues, missing coverage, and correctness. Write your findings to `<task-memory-base>/reviews/`.
@@ -202,9 +205,12 @@ Trigger ops when the review passes.
 
 **ops** — Read the reviewer output and the implementation. If a `repoUrl` and `branch` are
 in the queue file, create a GitHub pull request using the GitHub MCP `pull_requests` toolset
-(base: default branch, head: `agentforge/<task-id>`). Always produce deployment artifacts
-in `<task-memory-base>/deployments/` — Kubernetes manifests, Helm values, CI/CD config, or
-PR URL as appropriate. Write a deployment log entry summarising what was done.
+(base: default branch, head: `agentforge/<task-id>`); record the PR URL in
+`<task-memory-base>/deployments/pr.txt` — that is the deployment artifact for repo-based
+tasks, do **not** also generate Kubernetes manifests, Helm values, or CI/CD config unless
+the task or spec explicitly asks for them. If there is no `repoUrl`, produce the deployment
+artifacts the task actually requires (manifests, Helm values, CI/CD config). Either way,
+write a brief deployment log entry summarising what was done.
 
 These descriptions are intentionally open. The task payload and any project `CLAUDE.md`
 in the workspace define the specifics. Use your judgement on approach — the role tells
