@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y \
 RUN npm install -g @anthropic-ai/claude-code
 
 # Install Python Anthropic SDK as fallback
-RUN pip3 install anthropic --break-system-packages
+RUN pip3 install anthropic pg8000 --break-system-packages
 
 # Create non-root user — Claude Code requires this
 RUN useradd -m -u 1001 -s /bin/bash agent

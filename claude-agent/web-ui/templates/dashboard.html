@@ -2,7 +2,14 @@
 {% block title %}Dashboard — AgentForge{% endblock %}
 {% block head_extra %}<meta http-equiv="refresh" content="15">{% endblock %}
 {% block content %}
-<h1>Pipeline Runs</h1>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+  <h1 style="margin-bottom:0;">Pipeline Runs</h1>
+  <form method="post" action="/self-improve" style="margin:0;">
+    <button type="submit" class="btn btn-primary" style="gap:8px;">
+      ⟳ Run Self-Improvement
+    </button>
+  </form>
+</div>
 
 {% if tasks %}
 <div class="card" style="padding:0;">

@@ -113,6 +113,35 @@ resources:
 {{- end }}
 
 {{/*
+Postgres environment variables injected into agent pods when postgres is enabled.
+Allows agents (particularly the self-improvement architect) to query the
+observability DB directly for performance data.
+*/}}
+{{- define "claude-agents.postgresEnv" -}}
+{{- if .Values.postgres.enabled }}
+- name: PGHOST
+  value: "{{ include "claude-agents.fullname" . }}-postgres.{{ .Values.global.namespace }}.svc.cluster.local"
+- name: PGPORT
+  value: {{ .Values.postgres.port | quote }}
+- name: PGDATABASE
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgres.credentialsSecret }}
+      key: POSTGRES_DB
+- name: PGUSER
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgres.credentialsSecret }}
+      key: POSTGRES_USER
+- name: PGPASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgres.credentialsSecret }}
+      key: POSTGRES_PASSWORD
+{{- end }}
+{{- end }}
+
+{{/*
 Pod-level securityContext applied to every agent pod.
 Enforces UID 1001 at the K8s layer, matching the agent user in the Dockerfile.
 fsGroup 1001 ensures NFS volume files are group-accessible by the agent user.

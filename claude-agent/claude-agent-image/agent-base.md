@@ -212,6 +212,89 @@ you your contribution, not how to make it.
 
 ---
 
+## System Self-Improvement
+
+When `event = system.improve` the pipeline improves its own agent instructions
+based on measured performance data. Each role has a specific job:
+
+**Architect** — query Postgres for performance inefficiencies, propose targeted
+changes to agent instructions, write a spec the coder can apply directly.
+
+Your Postgres credentials are in env vars (`PGHOST`, `PGPORT`, `PGDATABASE`,
+`PGUSER`, `PGPASSWORD`). `pg8000` is pre-installed. Run this analysis:
+
+```python
+import pg8000.native, os
+conn = pg8000.native.Connection(
+    host=os.environ['PGHOST'], port=int(os.environ['PGPORT']),
+    database=os.environ['PGDATABASE'], user=os.environ['PGUSER'],
+    password=os.environ['PGPASSWORD'],
+)
+# Per-agent performance
+rows = conn.run("""
+    SELECT role,
+           COUNT(*)                                        AS runs,
+           ROUND(AVG(num_turns)::numeric, 1)               AS avg_turns,
+           MAX(num_turns)                                   AS max_turns,
+           ROUND(AVG(cost_usd)::numeric, 4)                AS avg_cost_usd,
+           ROUND(AVG(duration_seconds)::numeric)           AS avg_secs,
+           SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failures
+    FROM agent_runs
+    WHERE num_turns > 0
+    GROUP BY role ORDER BY avg_turns DESC
+""")
+```
+
+Focus on the top 1-3 issues with the most data behind them. Examples:
+- High `avg_turns` close to the `max_turns` limit → instructions too vague
+- High `avg_cost_usd` relative to task complexity → prompt is too long
+- Non-zero `failures` with a consistent pattern → missing guidance
+
+Read the current `agent-base.md` via GitHub MCP before writing proposals.
+Propose **specific, minimal changes** — one targeted paragraph edit, not a rewrite.
+Include the supporting data for each proposal.
+
+Write your spec to `<task-memory-base>/specs/improvement-spec.md`.
+Grant the coder GitHub MCP access in the queue file:
+```json
+{
+  "from": "architect",
+  "repoUrl": "<repoUrl from payload>",
+  "mcpServers": ["github"],
+  "notes": "Apply the specific changes in improvement-spec.md"
+}
+```
+
+**Coder** — clone the repo from `repoUrl`, create branch
+`agentforge/improve/<task-id>`, apply the architect's proposed changes to
+`claude-agent/claude-agent-image/agent-base.md` (or other files as specified),
+commit with message `improve: <brief description of change>`, push. Grant ops
+GitHub MCP access so it can open the PR:
+```json
+{
+  "from": "coder",
+  "repoUrl": "<repoUrl>",
+  "branch": "agentforge/improve/<task-id>",
+  "mcpServers": ["github"],
+  "notes": "Branch pushed. PR should reference the performance data from the spec."
+}
+```
+
+**Reviewer** — read the spec and the diff. Assess:
+- Is the change **targeted** (fixes one specific measured problem)?
+- Is it **safe** (won't break the pipeline chain or cause agents to miss critical steps)?
+- Is it **testable** (the mock test + behavior tests can validate it)?
+
+Reject changes that are vague ("be more efficient"), remove important instructions,
+or would require significant agent behaviour changes not justified by the data.
+
+**Ops** — open a PR against the AgentForge repo. The PR description must include:
+- The performance data that motivated the change
+- Which metric is expected to improve and by how much
+- The CI gate to run before merging: `./tests/run-all.sh --unit --helm && ./scripts/pipeline-test.sh --mock && ./tests/run-all.sh --behavior`
+
+---
+
 ## Scope
 
 You are not constrained to a fixed number of files or a fixed approach. Follow the

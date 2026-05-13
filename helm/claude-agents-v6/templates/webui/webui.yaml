@@ -66,6 +66,8 @@ spec:
                   key: WEBHOOK_SECRET
             - name: WEBHOOK_URL
               value: "http://{{ include "claude-agents.fullname" . }}-webhook.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.webhook.port }}"
+            - name: SELF_IMPROVE_REPO_URL
+              value: {{ .Values.selfImprove.repoUrl | quote }}
           livenessProbe:
             httpGet:
               path: /

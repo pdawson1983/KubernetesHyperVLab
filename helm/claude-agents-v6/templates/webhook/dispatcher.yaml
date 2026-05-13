@@ -83,6 +83,8 @@ spec:
               value: {{ include "claude-agents.fullname" . }}
             - name: APPROVAL_REQUIRED
               value: {{ .Values.webhook.approvalRequired | quote }}
+            - name: SELF_IMPROVE_REPO_URL
+              value: {{ .Values.selfImprove.repoUrl | quote }}
             - name: PORT
               value: {{ .Values.webhook.port | quote }}
           volumeMounts:
@@ -112,6 +114,7 @@ spec:
               TRIGGER_MAP = {
                 "issue.opened":         "architect",
                 "issue.labeled":        "architect",
+                "system.improve":       "architect",
                 "architect.complete":   "coder",
                 "coder.complete":       "tester",
                 "tester.complete":      "reviewer",

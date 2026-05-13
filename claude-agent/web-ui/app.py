@@ -14,8 +14,9 @@ PGPORT     = int(os.getenv("PGPORT", "5432"))
 PGDATABASE = os.getenv("PGDATABASE", "agentforge")
 PGUSER     = os.getenv("PGUSER", "agentforge")
 PGPASSWORD = os.getenv("PGPASSWORD", "")
-WEBHOOK_URL     = os.getenv("WEBHOOK_URL", "http://agentforge-webhook.agentforge.svc.cluster.local:8080")
-WEBHOOK_SECRET  = os.getenv("WEBHOOK_SECRET", "").encode()
+WEBHOOK_URL          = os.getenv("WEBHOOK_URL", "http://agentforge-webhook.agentforge.svc.cluster.local:8080")
+WEBHOOK_SECRET       = os.getenv("WEBHOOK_SECRET", "").encode()
+SELF_IMPROVE_REPO    = os.getenv("SELF_IMPROVE_REPO_URL", "https://github.com/pdawson1983/KubernetesHyperVLab")
 
 db: asyncpg.Pool | None = None
 
@@ -267,6 +268,40 @@ async def submit_task(
         return templates.TemplateResponse("submit.html", {
             "request": request, "error": str(e)
         })
+    return RedirectResponse("/", status_code=303)
+
+
+
+# ── Self-improvement ───────────────────────────────────────────────────────────
+
+@app.post("/self-improve")
+async def run_self_improve():
+    title = f"AgentForge self-improvement — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+    payload = {
+        "event": "system.improve",
+        "title": title,
+        "repoUrl": SELF_IMPROVE_REPO,
+    }
+    payload_bytes = json.dumps(payload).encode()
+    sig = sign(payload_bytes)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                WEBHOOK_URL,
+                content=payload_bytes,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Event-Type": "system.improve",
+                    "X-Hub-Signature-256": sig,
+                },
+                timeout=10,
+            )
+        data = resp.json()
+        task_id = data.get("task_id")
+        if task_id:
+            return RedirectResponse(f"/tasks/{task_id}", status_code=303)
+    except Exception as e:
+        print(f"[webui] self-improve dispatch failed: {e}", flush=True)
     return RedirectResponse("/", status_code=303)
 
 
