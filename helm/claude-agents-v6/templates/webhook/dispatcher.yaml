@@ -83,6 +83,13 @@ spec:
               value: {{ include "claude-agents.fullname" . }}
             - name: APPROVAL_REQUIRED
               value: {{ .Values.webhook.approvalRequired | quote }}
+            {{- if .Values.mcp.servers.github.enabled }}
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcp.servers.github.tokenSecret }}
+                  key: GITHUB_TOKEN
+            {{- end }}
             - name: SELF_IMPROVE_REPO_URL
               value: {{ .Values.selfImprove.repoUrl | quote }}
             - name: PORT
@@ -173,22 +180,42 @@ spec:
                     self.end_headers()
                     self.wfile.write(body)
                   elif self.path.startswith("/task/") and self.path.endswith("/pr"):
+                    import urllib.request as _ur
                     task_id = self.path.split("/task/", 1)[1].rsplit("/pr", 1)[0].strip("/")
-                    pr_url = None
+                    pr_url = None; pr_title = None; pr_number = None
                     dep_dir = MEMORY_PATH / "tasks" / task_id / "deployments"
                     if dep_dir.exists():
-                      # Try pr.json first (structured), then pr.txt (plain URL)
                       pr_json = dep_dir / "pr.json"
                       pr_txt  = dep_dir / "pr.txt"
                       if pr_json.exists():
                         try:
                           d = json.loads(pr_json.read_text())
-                          pr_url = d.get("pr_url") or d.get("url") or d.get("html_url")
+                          pr_url    = d.get("pr_url") or d.get("url") or d.get("html_url")
+                          pr_title  = d.get("title")
+                          pr_number = d.get("pr_number") or d.get("number")
                         except Exception:
                           pass
                       if not pr_url and pr_txt.exists():
                         pr_url = pr_txt.read_text().strip()
-                    body = json.dumps({"pr_url": pr_url}).encode()
+                    # If we have a URL but no title, fetch from GitHub API
+                    if pr_url and not pr_title:
+                      try:
+                        parts = pr_url.rstrip("/").split("/")
+                        # https://github.com/{owner}/{repo}/pull/{number}
+                        if len(parts) >= 7 and "github.com" in pr_url:
+                          owner, repo, num = parts[-4], parts[-3], parts[-1]
+                          pr_number = pr_number or int(num)
+                          api = f"https://api.github.com/repos/{owner}/{repo}/pulls/{num}"
+                          token = os.environ.get("GITHUB_TOKEN", "")
+                          headers = {"User-Agent": "AgentForge"}
+                          if token:
+                            headers["Authorization"] = "token " + token
+                          req = _ur.Request(api, headers=headers)
+                          with _ur.urlopen(req, timeout=5) as r:
+                            pr_title = json.loads(r.read()).get("title")
+                      except Exception as e:
+                        print("[dispatcher] PR title fetch failed: " + str(e), flush=True)
+                    body = json.dumps({"pr_url": pr_url, "pr_title": pr_title, "pr_number": pr_number}).encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(body)))
