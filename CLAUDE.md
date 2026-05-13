@@ -265,6 +265,7 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Token consumption: --output-format json captures input/output/cache tokens + cost_usd + num_turns per agent; stored in agent_runs Postgres; shown on dashboard (Tokens/Cost columns) and task detail (per-agent Turns/Tokens In/Tokens Out/Cost) (2026-05-11)
 - [x] Dashboard shows in-progress tasks: dispatcher GET /tasks endpoint scans NFS; web UI merges live + Postgres results with running tasks at top (2026-05-11)
 - [x] Skip agents: checkboxes on submit form (coder/tester/reviewer/ops); skipped agent writes next queue trigger and exits without calling Claude; shown with neutral gray badge (2026-05-11)
+- [x] Test suite: 70 tests across 4 suites — unit/entrypoint (21), Helm template (18), dispatcher HTTP (10), web UI HTTP (21); behavior end-to-end suite; run-all.sh orchestrator (2026-05-12)
 
 ---
 
@@ -284,6 +285,8 @@ Coder → Tester → Reviewer → Ops  (same pattern)
 - [x] Token consumption: --output-format json, per-agent tokens/cost/turns in Postgres and web UI (2026-05-11)
 - [x] Dashboard shows in-progress tasks merged from live NFS + Postgres (2026-05-11)
 - [x] Skip agents: submit form checkboxes; entrypoint.sh bypasses skipped agents (2026-05-11)
+- [ ] Test suite CI gate for self-improvement PRs: run-all.sh --unit --helm + pipeline-test.sh --mock + run-all.sh --behavior
+- [ ] System self-improvement loop: queries Postgres for inefficiencies, proposes edits to agent CLAUDE.md files, ops opens PR; tests are the gate
 - [ ] Agent Instructions wizard: simple mode (current textarea) + guided wizard with Goal/Constraints/Acceptance Criteria sections
 - [ ] Feedback-triggered rebuild: `pipeline.feedback` event accepts a structured observation, routes to architect to propose a fix through the full pipeline including image rebuild
 - [ ] CI/CD scope: external GitHub Actions → webhook integration (future)
@@ -498,4 +501,23 @@ kubectl logs -n agentforge -l app.kubernetes.io/name=webui --tail=20
 
 # Add dashboard.k8s.local to /etc/hosts (WSL + Windows)
 # 192.168.100.200 webhook.k8s.local dashboard.k8s.local
+
+# Run tests (no cluster required)
+cd KubernetesHyperVLab
+./tests/run-all.sh --unit --helm
+
+# Run all tests (cluster required)
+./tests/run-all.sh
+
+# Run CI gate for self-improvement PRs
+./tests/run-all.sh --unit --helm && \
+./scripts/pipeline-test.sh --mock && \
+./tests/run-all.sh --behavior
+
+# Individual suites
+bash tests/unit/test-entrypoint.sh
+python3 tests/helm/test-helm.py
+python3 tests/unit/test-dispatcher.py
+python3 tests/unit/test-webui.py
+bash tests/behavior/test-behavior.sh
 ```

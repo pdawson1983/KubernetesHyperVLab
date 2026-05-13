@@ -87,4 +87,5 @@ Open work items for the K8s HyperV Lab. Update status and add outcome notes when
 | Dashboard in-progress tasks | 2026-05-11 | dispatcher GET /tasks scans NFS; web UI merges running (live) + completed (Postgres) with running tasks pinned to top |
 | Skip agents | 2026-05-11 | Checkboxes on submit form (coder/tester/reviewer/ops); skip_agents in task.json; entrypoint.sh bypasses skipped roles and chains through; skipped badge; agent 20260511-121258 |
 | Live task view fix | 2026-05-11 | GET /task/<id> on dispatcher proxies NFS task.json; web UI falls back when task not yet in Postgres (still running); "< 1s" for sub-second durations |
+| Test suite | 2026-05-12 | 70 tests across 4 suites: unit/entrypoint (21), Helm (18), dispatcher HTTP (10), web UI HTTP (21); behavior E2E suite; run-all.sh with multi-flag support |
 | Task-scoped CLAUDE.md from submit form | 2026-05-11 | context field in payload → dispatcher writes /memory/tasks/<id>/CLAUDE.md; entrypoint.sh reads task-scoped over global CLAUDE.md; all 5 agents see it |
