@@ -41,6 +41,18 @@
     <div class="meta">Total Cost</div>
     <div style="font-weight:600;margin-top:4px;">{{ run.total_cost_fmt or '—' }}</div>
   </div>
+  {% if pr_url %}
+  <div class="card" style="border-color:var(--success);">
+    <div class="meta">Pull Request</div>
+    <div style="margin-top:4px;">
+      <a href="{{ pr_url }}" target="_blank" style="color:var(--success);font-weight:600;">
+        {{ pr_url.split('/')[-1] if 'github.com' in pr_url else pr_url }}
+        <span style="font-size:10px;opacity:.7;">↗</span>
+      </a>
+      <div class="meta" style="font-size:10px;">{{ pr_url }}</div>
+    </div>
+  </div>
+  {% endif %}
   <div class="card">
     <div class="meta">Started</div>
     <div style="font-weight:600;margin-top:4px;">

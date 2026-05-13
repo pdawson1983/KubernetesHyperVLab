@@ -218,8 +218,19 @@ async def task_detail(request: Request, task_id: str):
         except Exception as e:
             return HTMLResponse(f"Task not found ({e})", status_code=404)
 
+    # Fetch PR URL from deployments/ via dispatcher (works for both live and completed tasks)
+    pr_url = None
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{WEBHOOK_URL}/task/{task_id}/pr", timeout=5)
+        if resp.status_code == 200:
+            pr_url = resp.json().get("pr_url")
+    except Exception:
+        pass
+
     return templates.TemplateResponse("task.html", {
         "request": request, "run": run, "agents": agent_list, "live": live,
+        "pr_url": pr_url,
     })
 
 
