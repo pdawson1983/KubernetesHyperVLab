@@ -1,6 +1,7 @@
 import hmac, hashlib, json, os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import asyncpg
 import httpx
@@ -17,6 +18,7 @@ PGPASSWORD = os.getenv("PGPASSWORD", "")
 WEBHOOK_URL          = os.getenv("WEBHOOK_URL", "http://agentforge-webhook.agentforge.svc.cluster.local:8080")
 WEBHOOK_SECRET       = os.getenv("WEBHOOK_SECRET", "").encode()
 SELF_IMPROVE_REPO    = os.getenv("SELF_IMPROVE_REPO_URL", "https://github.com/pdawson1983/KubernetesHyperVLab")
+EASTERN = ZoneInfo("America/New_York")
 
 db: asyncpg.Pool | None = None
 
@@ -74,6 +76,20 @@ def fmt_duration(secs):
     if secs < 60:
         return f"{secs}s"
     return f"{secs // 60}m {secs % 60}s"
+
+
+def fmt_eastern(value, fmt="%Y-%m-%d %H:%M:%S %Z"):
+    """Render a UTC datetime as Eastern time. Returns '—' for None.
+    Naive datetimes are assumed UTC (defensive — all current callers pass
+    tz-aware values from Postgres TIMESTAMPTZ columns)."""
+    if value is None:
+        return "—"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(EASTERN).strftime(fmt)
+
+
+templates.env.filters["eastern"] = fmt_eastern
 
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -314,7 +330,7 @@ async def run_self_improve(
     request: Request,
     context: str = Form(""),
 ):
-    title = f"AgentForge self-improvement — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+    title = f"AgentForge self-improvement — {datetime.now(EASTERN).strftime('%Y-%m-%d %H:%M %Z')}"
     payload = {
         "event": "system.improve",
         "title": title,
@@ -376,6 +392,19 @@ async def approvals_page(request: Request):
                 pending = resp.json()
     except Exception as e:
         print(f"[webui] could not fetch pending approvals: {e}", flush=True)
+
+    # Dispatcher /pending returns created_at as an ISO-8601 string; the eastern
+    # filter expects a tz-aware datetime (same contract as dashboard/task_detail).
+    def _dt(s):
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    for p in pending:
+        p["created_at"] = _dt(p.get("created_at"))
 
     # Enrich with task titles from Postgres
     if pending:

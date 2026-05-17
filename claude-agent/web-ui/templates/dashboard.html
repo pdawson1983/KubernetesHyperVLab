@@ -51,7 +51,7 @@
         <td class="mono">{{ t.cost_fmt }}</td>
         <td class="meta">
           {% if t.created_at %}
-          {{ t.created_at.strftime('%m-%d %H:%M') }}
+          {{ t.created_at | eastern('%m-%d %H:%M %Z') }}
           {% endif %}
         </td>
       </tr>

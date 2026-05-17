@@ -19,7 +19,7 @@
     {% endif %}
     <div class="mono" style="font-size:11px;">{{ p.task_id }}</div>
     {% if p.created_at %}
-    <div class="meta" style="margin-top:4px;">Waiting since {{ p.created_at }}</div>
+    <div class="meta" style="margin-top:4px;">Waiting since {{ p.created_at | eastern('%Y-%m-%d %H:%M:%S %Z') }}</div>
     {% endif %}
   </div>
   <div style="display:flex;gap:8px;flex-shrink:0;">
