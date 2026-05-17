@@ -62,9 +62,26 @@ _make_stub("asyncpg", {"Pool": MagicMock(), "create_pool": MagicMock()})
 if "httpx" not in sys.modules:
     _make_stub("httpx", {"AsyncClient": MagicMock()})
 
+class _FakeFastAPIApp:
+    """FastAPI app stub whose route decorators (@app.get/post/...) return the
+    wrapped function unchanged, so route handlers remain callable as plain
+    async functions in unit tests. A bare MagicMock would wrap each handler
+    in a MagicMock and break direct invocation."""
+
+    def _route_decorator(self, *args, **kwargs):
+        return lambda f: f
+
+    get = post = put = delete = patch = options = head = _route_decorator
+
+
+class _FakeFastAPI:
+    def __call__(self, *args, **kwargs):
+        return _FakeFastAPIApp()
+
+
 fastapi = _make_stub(
     "fastapi",
-    {"FastAPI": MagicMock(), "Form": MagicMock(), "Request": MagicMock()},
+    {"FastAPI": _FakeFastAPI(), "Form": MagicMock(), "Request": MagicMock()},
 )
 _make_stub(
     "fastapi.responses",
@@ -193,6 +210,116 @@ else:
         "filter registration",
         f"templates.env.filters['eastern'] = "
         f"{webui_app.templates.env.filters.get('eastern')!r}",
+    )
+
+
+# ── /approvals enrichment: created_at must become a datetime ─────────────
+#
+# Regression guard for the bug where approvals_page passed the dispatcher's
+# raw string created_at straight to the `eastern` filter, which then crashed
+# with AttributeError ('str' has no attribute 'tzinfo'). The filter contract
+# is "tz-aware datetime in, formatted string out"; approvals_page is therefore
+# responsible for converting the dispatcher's ISO-8601 string before render.
+
+print("\n── approvals_page: created_at converted from str to datetime ────────")
+
+import asyncio
+
+
+class _FakeResp:
+    def __init__(self, data, status_code=200):
+        self._data = data
+        self.status_code = status_code
+
+    def json(self):
+        return self._data
+
+
+class _FakeClient:
+    def __init__(self, pending_data):
+        self._data = pending_data
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def get(self, url, timeout=None):
+        return _FakeResp(self._data)
+
+
+class _FakeDB:
+    async def fetch(self, query, *args, **kwargs):
+        return [
+            {"task_id": "20260517-044738-8ad6", "title": "stub", "repo_url": ""}
+        ]
+
+
+_pending_from_dispatcher = [
+    {"task_id": "20260517-044738-8ad6", "created_at": "2026-05-17T04:47:38Z"}
+]
+
+
+class _CapturingTemplates:
+    def __init__(self):
+        self.captured = {}
+        self.env = types.SimpleNamespace(filters={})
+
+    def TemplateResponse(self, name, ctx):
+        self.captured = ctx
+        return MagicMock()
+
+
+# Patch only the references that approvals_page reads from the module's globals.
+# We don't touch the real httpx / asyncpg modules — just the names webui_app sees.
+webui_app.httpx = types.SimpleNamespace(
+    AsyncClient=lambda *a, **k: _FakeClient(_pending_from_dispatcher)
+)
+webui_app.db = _FakeDB()
+_capturing = _CapturingTemplates()
+webui_app.templates = _capturing
+
+try:
+    asyncio.run(webui_app.approvals_page(MagicMock()))
+    pending_out = _capturing.captured.get("pending", [])
+    if not pending_out:
+        fail(
+            "approvals_page populates pending",
+            "no pending entries captured from template context",
+        )
+    else:
+        created = pending_out[0].get("created_at")
+        if isinstance(created, datetime):
+            ok(
+                f"approvals_page converts dispatcher str created_at to datetime: "
+                f"{created!r}"
+            )
+            # Verify the converted value flows cleanly through fmt_eastern,
+            # which is the exact path that previously crashed.
+            try:
+                rendered = fmt_eastern(created, "%Y-%m-%d %H:%M %Z")
+                ok(f"fmt_eastern accepts approvals_page output: {rendered!r}")
+            except Exception as e:
+                fail(
+                    "fmt_eastern accepts approvals_page output",
+                    f"raised {type(e).__name__}: {e}",
+                )
+        else:
+            fail(
+                "approvals_page created_at is datetime",
+                f"expected datetime, got {type(created).__name__}: {created!r}",
+            )
+except AttributeError as e:
+    # The exact failure mode that motivated this regression test.
+    fail(
+        "approvals_page does not crash on dispatcher str created_at",
+        f"AttributeError: {e}",
+    )
+except Exception as e:
+    fail(
+        "approvals_page runs to completion",
+        f"{type(e).__name__}: {e}",
     )
 
 

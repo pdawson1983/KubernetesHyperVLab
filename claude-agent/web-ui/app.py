@@ -393,6 +393,19 @@ async def approvals_page(request: Request):
     except Exception as e:
         print(f"[webui] could not fetch pending approvals: {e}", flush=True)
 
+    # Dispatcher /pending returns created_at as an ISO-8601 string; the eastern
+    # filter expects a tz-aware datetime (same contract as dashboard/task_detail).
+    def _dt(s):
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    for p in pending:
+        p["created_at"] = _dt(p.get("created_at"))
+
     # Enrich with task titles from Postgres
     if pending:
         ids = [p["task_id"] for p in pending]
