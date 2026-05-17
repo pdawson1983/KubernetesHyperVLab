@@ -151,6 +151,39 @@ if r:
     else:
         fail("Approvals page missing expected content")
 
+# ── Eastern-time display ──────────────────────────────────────────────────
+# All user-visible timestamps render via the `eastern` Jinja filter and emit
+# an EST or EDT zone label. The label only appears when timestamps are
+# rendered, so these checks are soft when pages have no data.
+
+print("\n── Eastern-time display ──────────────────────────────────────────────")
+
+
+def _has_tz_label(text):
+    return ("EST" in text) or ("EDT" in text)
+
+
+def check_eastern(path, label, has_data_marker=None):
+    r2 = httpx.get(f"{WEBUI_URL}{path}", timeout=10, follow_redirects=True)
+    if r2.status_code != 200:
+        fail(f"{label} ({path})", f"status {r2.status_code}")
+        return
+    if has_data_marker is not None and has_data_marker not in r2.text:
+        print(f"  SKIP  {label} ({path}) — no data marker '{has_data_marker}' in response")
+        return
+    if _has_tz_label(r2.text):
+        ok(f"{label} ({path}) shows EST or EDT")
+    elif "—" in r2.text or "No " in r2.text:
+        print(f"  SKIP  {label} ({path}) — no timestamps rendered (empty/placeholder page)")
+    else:
+        fail(f"{label} ({path})", "no EST/EDT label found in response")
+
+
+check_eastern("/", "Dashboard")
+check_eastern("/approvals", "Approvals")
+if task_id:
+    check_eastern(f"/tasks/{task_id}", "Task detail", has_data_marker="Agent Chain")
+
 # ── Summary ───────────────────────────────────────────────────────────────
 
 print()

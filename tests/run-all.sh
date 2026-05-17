@@ -55,6 +55,8 @@ check_cluster() {
 if want "--unit"; then
   suite "Entrypoint unit tests" \
     "bash '${SCRIPT_DIR}/unit/test-entrypoint.sh'"
+  suite "Web UI Eastern-time filter unit tests" \
+    "python3 '${SCRIPT_DIR}/unit/test-eastern-time.py'"
 fi
 
 # ── Helm template tests (no cluster required) ─────────────────────────────
