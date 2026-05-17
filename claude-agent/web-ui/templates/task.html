@@ -54,7 +54,7 @@
   <div class="card">
     <div class="meta">Started</div>
     <div style="font-weight:600;margin-top:4px;">
-      {% if run.created_at %}{{ run.created_at.strftime('%Y-%m-%d %H:%M:%S') }}{% else %}—{% endif %}
+      {{ run.created_at | eastern('%Y-%m-%d %H:%M:%S %Z') }}
     </div>
   </div>
 </div>
@@ -90,7 +90,7 @@
           {% if a.exit_code is not none %}{{ a.exit_code }}{% else %}—{% endif %}
         </td>
         <td class="meta">
-          {% if a.started_at %}{{ a.started_at.strftime('%H:%M:%S') }}{% else %}—{% endif %}
+          {{ a.started_at | eastern('%H:%M:%S %Z') }}
         </td>
         <td>
           {% if a.status not in ('skipped', 'running') %}
